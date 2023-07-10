@@ -55,8 +55,8 @@ func preopenedListener(c closer) (net.Listener, error) {
 	return l, err
 }
 
-// BootstrapClient bootstraps the Capnp client attached to the other end of
-// the pre-openned TCP connection
+// BootstrapClient bootstraps and resolves the Capnp client attached
+// to the other end of the pre-openned TCP connection
 func BootstrapClient() (capnp.Client, closer, error) {
 	closer := closer{
 		closers: make([]io.Closer, 0),
