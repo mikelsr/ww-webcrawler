@@ -1,2 +1,2 @@
 # ww-webcrawler
-Very simple webcrawler implemented using WetWare
+Very simple webcrawler implemented using [Wetware](https://github.com/wetware/ww)
