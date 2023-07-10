@@ -1,3 +1,4 @@
+//go:generate env GOOS=wasip1 GOARCH=wasm gotip build -o main.wasm main.go
 package main
 
 /*
@@ -6,7 +7,6 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"io"
 	"net"
 	"os"
