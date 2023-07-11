@@ -34,17 +34,19 @@ func get(ctx context.Context, getter http_api.HttpGetter, url string) (Response,
 		return Response{}, err
 	}
 
-	body, err := res.Body()
-	if err != nil {
-		return Response{}, err
-	}
-
 	status := res.Status()
 
 	resErr, err := res.Error()
 	if err != nil {
 		return Response{}, err
 	}
+
+	buf, err := res.Body()
+	if err != nil {
+		return Response{}, err
+	}
+	body := make([]byte, len(buf))
+	copy(body, buf)
 
 	return Response{
 		Body:   body,
