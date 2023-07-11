@@ -4,38 +4,44 @@ import (
 	"context"
 	"fmt"
 
-	cluster_api "github.com/wetware/ww/api/cluster"
-	process_api "github.com/wetware/ww/api/process"
-	http_api "github.com/wetware/ww/experiments/api/http"
-	tools_api "github.com/wetware/ww/experiments/api/tools"
+	"github.com/wetware/ww/api/cluster"
+	"github.com/wetware/ww/api/process"
+	"github.com/wetware/ww/experiments/api/http"
+	"github.com/wetware/ww/experiments/api/tools"
 )
 
 func main() {
 	ctx := context.Background()
+
+	// Bootstrap the required capabilites that were provided by the executor
 	client, closer, err := BootstrapClient(ctx)
 	defer closer.Close()
 	if err != nil {
 		panic(err)
 	}
 
-	inbox := process_api.Inbox(client)
+	// The inbox always contains a host, at least for now
+	inbox := process.Inbox(client)
 	open, release := inbox.Open(ctx, nil)
 	defer release()
 
-	host := cluster_api.Host(open.Content().AddRef())
+	host := cluster.Host(open.Content().AddRef())
 
+	// The host points to its executor
 	executor, err := executorFromHost(ctx, host)
 	if err != nil {
 		panic(err)
 	}
 	defer executor.Release()
 
+	// The executor points to the experimental tools
 	tools, err := toolsFromExecutor(ctx, executor)
 	if err != nil {
 		panic(err)
 	}
 	defer tools.Release()
 
+	// The experimental tools have an http getter
 	getter, err := getterFromTools(ctx, tools)
 	if err != nil {
 		panic(err)
@@ -47,40 +53,41 @@ func main() {
 		panic(err)
 	}
 
+	// The output will appear in the executor!
 	fmt.Println(res)
 }
 
-func executorFromHost(ctx context.Context, host cluster_api.Host) (process_api.Executor, error) {
+func executorFromHost(ctx context.Context, host cluster.Host) (process.Executor, error) {
 	f, _ := host.Executor(ctx, nil)
 	<-f.Done()
 
 	res, err := f.Struct()
 	if err != nil {
-		return process_api.Executor{}, err
+		return process.Executor{}, err
 	}
 
 	return res.Executor(), nil
 }
 
-func toolsFromExecutor(ctx context.Context, executor process_api.Executor) (tools_api.Tools, error) {
+func toolsFromExecutor(ctx context.Context, executor process.Executor) (tools.Tools, error) {
 	f, _ := executor.Tools(ctx, nil)
 	<-f.Done()
 
 	res, err := f.Struct()
 	if err != nil {
-		return tools_api.Tools{}, err
+		return tools.Tools{}, err
 	}
 
 	return res.Tools(), nil
 }
 
-func getterFromTools(ctx context.Context, tools tools_api.Tools) (http_api.HttpGetter, error) {
+func getterFromTools(ctx context.Context, tools tools.Tools) (http.HttpGetter, error) {
 	f, _ := tools.Http(ctx, nil)
 	<-f.Done()
 
 	res, err := f.Struct()
 	if err != nil {
-		return http_api.HttpGetter{}, err
+		return http.HttpGetter{}, err
 	}
 
 	return res.Getter(), nil

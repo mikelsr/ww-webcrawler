@@ -22,6 +22,7 @@ func (r Response) String() string {
 	return fmt.Sprintf("status: %d, error: %s, body: %s", r.Status, r.Error, string(r.Body)[:bodyLen])
 }
 
+// use the getter capability to perform HTTP GET requests
 func get(ctx context.Context, getter http_api.HttpGetter, url string) (Response, error) {
 	f, release := getter.Get(ctx, func(hg http_api.HttpGetter_get_Params) error {
 		return hg.SetUrl(url)
@@ -45,7 +46,7 @@ func get(ctx context.Context, getter http_api.HttpGetter, url string) (Response,
 	if err != nil {
 		return Response{}, err
 	}
-	body := make([]byte, len(buf))
+	body := make([]byte, len(buf)) // avoid garbage-collecting the body
 	copy(body, buf)
 
 	return Response{
