@@ -3,29 +3,37 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/wetware/ww/api/cluster"
 	"github.com/wetware/ww/api/process"
 	"github.com/wetware/ww/experiments/api/http"
 	"github.com/wetware/ww/experiments/api/tools"
+	"github.com/wetware/ww/pkg/csp"
+	ww "github.com/wetware/ww/wasm"
 )
+
+const hrefPattern = `<a\s+(?:[^>]*?\s+)?href="(?P<Link>[^"]*)"`
 
 func main() {
 	ctx := context.Background()
 
-	// Bootstrap the required capabilites that were provided by the executor
-	client, closer, err := BootstrapClient(ctx)
-	defer closer.Close()
+	clients, closers, err := ww.Init(ctx)
+	if err != nil {
+		panic(err)
+	}
+	defer closers.Close()
+
+	host := cluster.Host(clients[ww.HOST_INDEX])
+	urls, err := csp.Args(clients[ww.ARGS_INDEX]).Args(ctx)
 	if err != nil {
 		panic(err)
 	}
 
-	// The inbox always contains a host, at least for now
-	inbox := process.Inbox(client)
-	open, release := inbox.Open(ctx, nil)
-	defer release()
-
-	host := cluster.Host(open.Content().AddRef())
+	if len(urls) < 1 {
+		panic("missing argument url")
+	}
 
 	// The host points to its executor
 	executor, err := executorFromHost(ctx, host)
@@ -48,13 +56,32 @@ func main() {
 	}
 	defer getter.Release()
 
-	res, err := get(ctx, getter, "https://notes.mikel.xyz")
+	srcUrl := urls[0]
+	res, err := get(ctx, getter, srcUrl)
 	if err != nil {
 		panic(err)
 	}
 
 	// The output will appear in the executor!
-	fmt.Println(res)
+	r := regexp.MustCompile(hrefPattern)
+	links := r.FindAllStringSubmatch(string(res.Body), -1)
+	newUrls := make([]string, 0)
+	for _, link := range links {
+		url := link[len(link)-1]
+		// Skip all non-http urls
+		if !strings.HasPrefix(url, "http:") && !strings.HasPrefix(url, "https:") && !strings.HasPrefix(url, "/") {
+			continue
+		}
+		// Add missing prefix to relative paths
+		if strings.HasPrefix(url, "/") {
+			url = srcUrl + url
+		}
+		newUrls = append(newUrls, url)
+	}
+	fmt.Println("Found http(s) urls:")
+	for _, url := range newUrls {
+		fmt.Printf("- %s\n", url)
+	}
 }
 
 func executorFromHost(ctx context.Context, host cluster.Host) (process.Executor, error) {
