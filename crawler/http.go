@@ -8,7 +8,7 @@ import (
 	http_api "github.com/wetware/ww/experiments/api/http"
 )
 
-// https://datatracker.ietf.org/doc/html/rfc3986#section-3.3
+// Special characters found in path extracted from https://datatracker.ietf.org/doc/html/rfc3986#section-3.3
 // this abobinations are used to find links instead of using the wasm-limited native parser
 const quotedUrlPattern = `"(?P<Link>` +
 	`(?P<Proto>http[s]:\/\/?)?` +
