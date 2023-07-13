@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/wetware/ww/experiments/pkg/http"
 )
@@ -12,6 +13,8 @@ import (
 const (
 	statusOk  = 200
 	noMatches = "[]"
+	// TODO replace this one with a valid parsing of the JSON
+	noMatchesPrefix = `{"results":[{"columns":["a"],"data":[]}],"errors":[]`
 )
 
 type LoginInfo struct {
@@ -35,7 +38,7 @@ func (s Neo4jSession) PageExists(ctx context.Context, page link) bool {
 	if err != nil {
 		return false
 	}
-	return res.Error != "" || res.Status != statusOk || string(res.Body) != noMatches
+	return res.Error != "" || res.Status != statusOk || !strings.HasPrefix(string(res.Body), noMatchesPrefix)
 }
 
 func (s Neo4jSession) RegisterVisit(ctx context.Context, src, dst link) error {

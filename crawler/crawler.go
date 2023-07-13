@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"capnproto.org/go/capnp/v3"
 	"github.com/wetware/ww/api/cluster"
 	"github.com/wetware/ww/api/process"
 	http_api "github.com/wetware/ww/experiments/api/http"
@@ -74,27 +75,32 @@ func main() {
 	}
 
 	fromLink, toLinks := extractLinks(srcUrl, string(res.Body))
-	fmt.Println("Found http(s) urls:")
+	pendingProcs := make([]csp.Proc, 0)
 	for _, link := range toLinks {
 		fmt.Printf("- Found %s\n", link)
+		if !neo4jSession.PageExists(ctx, link) {
+			fmt.Printf("Spawn crawler for %s\n", link)
+			proc, release := csp.Executor(executor).ExecFromCache(
+				ctx,
+				[]byte(self),
+				capnp.Client(csp.NewArgs(args[0], args[1], args[2], args[3], link.String())),
+				capnp.Client(host.AddRef()),
+			)
+			defer release()
+			defer proc.Kill(ctx)
+			pendingProcs = append(pendingProcs, proc)
+		} else {
+			fmt.Printf("Skip page %s\n", link)
+		}
 		if err = neo4jSession.RegisterRef(ctx, fromLink, link); err != nil {
 			panic(err)
 		}
 	}
-	// for _, url := range newUrls {
-	// 	fmt.Printf("- Exploring %s\n", url)
-	// 	proc, release := csp.Executor(executor).ExecFromCache(
-	// 		ctx,
-	// 		[]byte(self),
-	// 		capnp.Client(host.AddRef()),
-	// 		capnp.Client(csp.NewArgs(string(self), url)),
-	// 	)
-	// 	defer release()
-	// 	if err = proc.Wait(ctx); err != nil {
-	// 		panic(err)
-	// 	}
-	// 	break
-	// }
+	for _, proc := range pendingProcs {
+		if err = proc.Wait(ctx); err != nil {
+			panic(err)
+		}
+	}
 }
 
 func executorFromHost(ctx context.Context, host cluster.Host) (process.Executor, error) {
