@@ -27,11 +27,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if len(args) < 2 {
-		panic("usage: ww cluster run crawler.wasm <md5sum> <urls...>")
+	if len(args) < 5 {
+		panic("usage: ww cluster run crawler.wasm <neo4j user> <neo4j password> <neo4j url> <urls...>")
 	}
 	self := []byte(args[0])
-	urls := args[1:]
+	urls := args[4:]
 	fmt.Printf("(%x) will crawl urls: %s\n", self, urls)
 
 	// The host points to its executor
@@ -57,16 +57,29 @@ func main() {
 
 	requester := http.Requester(r)
 
+	neo4jLogin := LoginInfo{
+		Username: args[1],
+		Password: args[2],
+		Endpoint: args[3],
+	}
+	neo4jSession := Neo4jSession{
+		Http:  requester,
+		Login: neo4jLogin,
+	}
+
 	srcUrl := urls[0]
 	res, err := requester.Get(ctx, srcUrl)
 	if err != nil {
 		panic(err)
 	}
 
-	links := extractLinks(srcUrl, string(res.Body))
+	fromLink, toLinks := extractLinks(srcUrl, string(res.Body))
 	fmt.Println("Found http(s) urls:")
-	for _, url := range links {
-		fmt.Printf("- Found %s\n", url)
+	for _, link := range toLinks {
+		fmt.Printf("- Found %s\n", link)
+		if err = neo4jSession.RegisterRef(ctx, fromLink, link); err != nil {
+			panic(err)
+		}
 	}
 	// for _, url := range newUrls {
 	// 	fmt.Printf("- Exploring %s\n", url)

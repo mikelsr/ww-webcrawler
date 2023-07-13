@@ -35,10 +35,10 @@ func linkFromMatch(match []string) link {
 
 // extract every crawleable link from a given page,
 // excluding the link the page was retrieved from
-func extractLinks(fromUrl string, html string) []link {
+func extractLinks(fromUrl string, html string) (from link, to []link) {
 	r := regexp.MustCompile(quotedUrlPattern)
 	match := r.FindStringSubmatch("\"" + fromUrl + "\"")
-	srcLink := linkFromMatch(match)
+	from = linkFromMatch(match)
 
 	r = regexp.MustCompile(hrefPattern)
 	matches := r.FindAllStringSubmatch(html, -1)
@@ -56,23 +56,23 @@ func extractLinks(fromUrl string, html string) []link {
 
 		// relative paths
 		if link.Domain == "" {
-			link.Proto = srcLink.Proto
-			link.Domain = srcLink.Domain
+			link.Proto = from.Proto
+			link.Domain = from.Domain
 		}
 
 		// same link
-		if link.String() == srcLink.String() {
+		if link.String() == from.String() {
 			continue
 		}
 		linkSet[link] = true
 	}
 
 	i := 0
-	links := make([]link, len(linkSet))
+	to = make([]link, len(linkSet))
 	for k := range linkSet {
-		links[i] = k
+		to[i] = k
 		i++
 	}
 
-	return links
+	return from, to
 }
