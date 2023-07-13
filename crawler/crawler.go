@@ -48,15 +48,17 @@ func main() {
 	}
 	defer tools.Release()
 
-	// The experimental tools have an http getter
-	getter, err := getterFromTools(ctx, tools)
+	// The experimental tools have an http client
+	r, err := httpFromTools(ctx, tools)
 	if err != nil {
 		panic(err)
 	}
-	defer getter.Release()
+	defer r.Release()
+
+	requester := http.Requester(r)
 
 	srcUrl := urls[0]
-	res, err := http.Get(ctx, getter, srcUrl)
+	res, err := requester.Get(ctx, srcUrl)
 	if err != nil {
 		panic(err)
 	}
@@ -106,14 +108,14 @@ func toolsFromExecutor(ctx context.Context, executor process.Executor) (tools.To
 	return res.Tools(), nil
 }
 
-func getterFromTools(ctx context.Context, tools tools.Tools) (http_api.HttpGetter, error) {
+func httpFromTools(ctx context.Context, tools tools.Tools) (http_api.Requester, error) {
 	f, _ := tools.Http(ctx, nil)
 	<-f.Done()
 
 	res, err := f.Struct()
 	if err != nil {
-		return http_api.HttpGetter{}, err
+		return http_api.Requester{}, err
 	}
 
-	return res.Getter(), nil
+	return res.Http(), nil
 }
