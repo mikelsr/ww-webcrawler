@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strings"
 
 	"github.com/wetware/ww/api/cluster"
 	"github.com/wetware/ww/api/process"
@@ -13,8 +11,6 @@ import (
 	"github.com/wetware/ww/pkg/csp"
 	ww "github.com/wetware/ww/wasm"
 )
-
-const hrefPattern = `<a\s+(?:[^>]*?\s+)?href="(?P<Link>[^"]*)"`
 
 func main() {
 	ctx := context.Background()
@@ -26,14 +22,16 @@ func main() {
 	defer closers.Close()
 
 	host := cluster.Host(clients[ww.HOST_INDEX])
-	urls, err := csp.Args(clients[ww.ARGS_INDEX]).Args(ctx)
+	args, err := csp.Args(clients[ww.ARGS_INDEX]).Args(ctx)
 	if err != nil {
 		panic(err)
 	}
-
-	if len(urls) < 1 {
-		panic("missing argument url")
+	if len(args) < 2 {
+		panic("usage: ww cluster run crawler.wasm <md5sum> <urls...>")
 	}
+	self := []byte(args[0])
+	urls := args[1:]
+	fmt.Printf("(%x) will crawl urls: %s\n", self, urls)
 
 	// The host points to its executor
 	executor, err := executorFromHost(ctx, host)
@@ -62,26 +60,25 @@ func main() {
 		panic(err)
 	}
 
-	// The output will appear in the executor!
-	r := regexp.MustCompile(hrefPattern)
-	links := r.FindAllStringSubmatch(string(res.Body), -1)
-	newUrls := make([]string, 0)
-	for _, link := range links {
-		url := link[len(link)-1]
-		// Skip all non-http urls
-		if !strings.HasPrefix(url, "http:") && !strings.HasPrefix(url, "https:") && !strings.HasPrefix(url, "/") {
-			continue
-		}
-		// Add missing prefix to relative paths
-		if strings.HasPrefix(url, "/") {
-			url = srcUrl + url
-		}
-		newUrls = append(newUrls, url)
-	}
+	links := extractLinks(srcUrl, string(res.Body))
 	fmt.Println("Found http(s) urls:")
-	for _, url := range newUrls {
-		fmt.Printf("- %s\n", url)
+	for _, url := range links {
+		fmt.Printf("- Found %s\n", url)
 	}
+	// for _, url := range newUrls {
+	// 	fmt.Printf("- Exploring %s\n", url)
+	// 	proc, release := csp.Executor(executor).ExecFromCache(
+	// 		ctx,
+	// 		[]byte(self),
+	// 		capnp.Client(host.AddRef()),
+	// 		capnp.Client(csp.NewArgs(string(self), url)),
+	// 	)
+	// 	defer release()
+	// 	if err = proc.Wait(ctx); err != nil {
+	// 		panic(err)
+	// 	}
+	// 	break
+	// }
 }
 
 func executorFromHost(ctx context.Context, host cluster.Host) (process.Executor, error) {

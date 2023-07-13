@@ -3,9 +3,80 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	http_api "github.com/wetware/ww/experiments/api/http"
 )
+
+// https://datatracker.ietf.org/doc/html/rfc3986#section-3.3
+// this abobinations are used to find links instead of using the wasm-limited native parser
+const quotedUrlPattern = `"(?P<Link>` +
+	`(?P<Proto>http[s]:\/\/?)?` +
+	`(?P<Domain>([0-9A-Za-z]+\.)*[A-Za-z]+)?` +
+	`(?P<Path>\/[0-9A-Za-z\.\-_\~\!$&'\(\)\*\+,;=:@]+)?` +
+	`[^"]*)"`
+const hrefPattern = `<a\s+(?:[^>]*?\s+)?href=` + quotedUrlPattern
+
+type link struct {
+	Full   string
+	Proto  string
+	Domain string
+	Path   string
+}
+
+func (l link) String() string {
+	return l.Proto + l.Domain + l.Path
+}
+
+func linkFromMatch(match []string) link {
+	return link{
+		Proto:  match[2],
+		Domain: match[3],
+		Path:   match[5],
+	}
+}
+
+func extractLinks(fromUrl string, html string) []link {
+	r := regexp.MustCompile(quotedUrlPattern)
+	match := r.FindStringSubmatch("\"" + fromUrl + "\"")
+	srcLink := linkFromMatch(match)
+
+	r = regexp.MustCompile(hrefPattern)
+	matches := r.FindAllStringSubmatch(html, -1)
+
+	// avoid repetition
+	linkSet := make(map[link]bool)
+
+	for _, match = range matches {
+		link := linkFromMatch(match)
+
+		// mailto, magnets or similar links
+		if link.Path == "" && link.Proto != "https://" && link.Proto != "http://" {
+			continue
+		}
+
+		// relative paths
+		if link.Domain == "" {
+			link.Proto = srcLink.Proto
+			link.Domain = srcLink.Domain
+		}
+
+		// same link
+		if link.String() == srcLink.String() {
+			continue
+		}
+		linkSet[link] = true
+	}
+
+	i := 0
+	links := make([]link, len(linkSet))
+	for k := range linkSet {
+		links[i] = k
+		i++
+	}
+
+	return links
+}
 
 type Response struct {
 	Body   []byte
@@ -22,7 +93,7 @@ func (r Response) String() string {
 	return fmt.Sprintf("status: %d, error: %s, body: %s", r.Status, r.Error, string(r.Body)[:bodyLen])
 }
 
-// use the getter capability to perform HTTP GET requests
+// get uses the getter capability to perform HTTP GET requests
 func get(ctx context.Context, getter http_api.HttpGetter, url string) (Response, error) {
 	f, release := getter.Get(ctx, func(hg http_api.HttpGetter_get_Params) error {
 		return hg.SetUrl(url)
