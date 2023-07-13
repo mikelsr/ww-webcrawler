@@ -6,8 +6,9 @@ import (
 
 	"github.com/wetware/ww/api/cluster"
 	"github.com/wetware/ww/api/process"
-	"github.com/wetware/ww/experiments/api/http"
+	http_api "github.com/wetware/ww/experiments/api/http"
 	"github.com/wetware/ww/experiments/api/tools"
+	"github.com/wetware/ww/experiments/pkg/http"
 	"github.com/wetware/ww/pkg/csp"
 	ww "github.com/wetware/ww/wasm"
 )
@@ -21,7 +22,7 @@ func main() {
 	}
 	defer closers.Close()
 
-	host := cluster.Host(clients[ww.HOST_INDEX])
+	host := cluster.Host(clients[ww.CAPS_INDEX])
 	args, err := csp.Args(clients[ww.ARGS_INDEX]).Args(ctx)
 	if err != nil {
 		panic(err)
@@ -55,7 +56,7 @@ func main() {
 	defer getter.Release()
 
 	srcUrl := urls[0]
-	res, err := get(ctx, getter, srcUrl)
+	res, err := http.Get(ctx, getter, srcUrl)
 	if err != nil {
 		panic(err)
 	}
@@ -105,13 +106,13 @@ func toolsFromExecutor(ctx context.Context, executor process.Executor) (tools.To
 	return res.Tools(), nil
 }
 
-func getterFromTools(ctx context.Context, tools tools.Tools) (http.HttpGetter, error) {
+func getterFromTools(ctx context.Context, tools tools.Tools) (http_api.HttpGetter, error) {
 	f, _ := tools.Http(ctx, nil)
 	<-f.Done()
 
 	res, err := f.Struct()
 	if err != nil {
-		return http.HttpGetter{}, err
+		return http_api.HttpGetter{}, err
 	}
 
 	return res.Getter(), nil
