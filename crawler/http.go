@@ -28,6 +28,7 @@ func (l link) String() string {
 	return l.Proto + l.Domain + l.Path
 }
 
+// create a link from a match retrieved with one of the patterns above
 func linkFromMatch(match []string) link {
 	return link{
 		Proto:  match[2],
@@ -36,6 +37,8 @@ func linkFromMatch(match []string) link {
 	}
 }
 
+// extract every crawleable link from a given page,
+// excluding the link the page was retrieved from
 func extractLinks(fromUrl string, html string) []link {
 	r := regexp.MustCompile(quotedUrlPattern)
 	match := r.FindStringSubmatch("\"" + fromUrl + "\"")
@@ -78,13 +81,14 @@ func extractLinks(fromUrl string, html string) []link {
 	return links
 }
 
-type Response struct {
+// response contains the most basic attributes of an HTTP GET response
+type response struct {
 	Body   []byte
 	Status uint32
 	Error  string
 }
 
-func (r Response) String() string {
+func (r response) String() string {
 	bodyLen := 15
 	if len(r.Body) < bodyLen {
 		bodyLen = len(r.Body)
@@ -94,7 +98,7 @@ func (r Response) String() string {
 }
 
 // get uses the getter capability to perform HTTP GET requests
-func get(ctx context.Context, getter http_api.HttpGetter, url string) (Response, error) {
+func get(ctx context.Context, getter http_api.HttpGetter, url string) (response, error) {
 	f, release := getter.Get(ctx, func(hg http_api.HttpGetter_get_Params) error {
 		return hg.SetUrl(url)
 	})
@@ -103,24 +107,24 @@ func get(ctx context.Context, getter http_api.HttpGetter, url string) (Response,
 
 	res, err := f.Struct()
 	if err != nil {
-		return Response{}, err
+		return response{}, err
 	}
 
 	status := res.Status()
 
 	resErr, err := res.Error()
 	if err != nil {
-		return Response{}, err
+		return response{}, err
 	}
 
 	buf, err := res.Body()
 	if err != nil {
-		return Response{}, err
+		return response{}, err
 	}
 	body := make([]byte, len(buf)) // avoid garbage-collecting the body
 	copy(body, buf)
 
-	return Response{
+	return response{
 		Body:   body,
 		Status: status,
 		Error:  resErr,
