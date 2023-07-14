@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/wetware/ww/api/cluster"
@@ -17,39 +18,38 @@ import (
 func main() {
 	ctx := context.Background()
 
-	clients, closers, err := ww.Init(ctx)
+	t1 := time.Now()
+	self, err := ww.Init(ctx)
 	if err != nil {
 		panic(err)
 	}
-	defer closers.Close()
+	defer self.Close()
+	t2 := time.Since(t1)
+	fmt.Printf("Took %f seconds to init process.\n", t2.Seconds())
 
-	host := cluster.Host(clients[ww.CAPS_INDEX])
-	args, err := csp.Args(clients[ww.ARGS_INDEX]).Args(ctx)
-	if err != nil {
-		panic(err)
-	}
-	if len(args) < 5 {
+	if len(self.Args) < 4 {
 		panic("usage: ww cluster run crawler.wasm <neo4j user> <neo4j password> <neo4j url> <urls...>")
 	}
-	self := []byte(args[0])
-	urls := args[4:]
-	fmt.Printf("(%x) will crawl urls: %s\n", self, urls)
 
-	// The host points to its executor
+	urls := self.Args[3:]
+	fmt.Printf("(%x) will crawl urls: %s\n", self.Pid, urls)
+
+	// The host points to its executor.
+	host := cluster.Host(self.Caps[0])
 	executor, err := executorFromHost(ctx, host)
 	if err != nil {
 		panic(err)
 	}
 	defer executor.Release()
 
-	// The executor points to the experimental tools
+	// The executor points to the experimental tools.
 	tools, err := toolsFromExecutor(ctx, executor)
 	if err != nil {
 		panic(err)
 	}
 	defer tools.Release()
 
-	// The experimental tools have an http client
+	// The experimental tools have an http client.
 	r, err := httpFromTools(ctx, tools)
 	if err != nil {
 		panic(err)
@@ -59,9 +59,9 @@ func main() {
 	requester := http.Requester(r)
 
 	neo4jLogin := LoginInfo{
-		Username: args[1],
-		Password: args[2],
-		Endpoint: args[3],
+		Username: self.Args[0],
+		Password: self.Args[1],
+		Endpoint: self.Args[2],
 	}
 	neo4jSession := Neo4jSession{
 		Http:  requester,
@@ -82,8 +82,9 @@ func main() {
 			fmt.Printf("Spawn crawler for %s\n", link)
 			proc, release := csp.Executor(executor).ExecFromCache(
 				ctx,
-				[]byte(self),
-				capnp.Client(csp.NewArgs(args[0], args[1], args[2], args[3], link.String())),
+				[]byte(self.Md5Sum),
+				self.Pid,
+				capnp.Client(csp.NewArgs(self.Args[0], self.Args[1], self.Args[2], link.String())),
 				capnp.Client(host.AddRef()),
 			)
 			defer release()
@@ -92,9 +93,11 @@ func main() {
 		} else {
 			fmt.Printf("Skip page %s\n", link)
 		}
-		if err = neo4jSession.RegisterRef(ctx, fromLink, link); err != nil {
-			panic(err)
-		}
+		// if err = neo4jSession.RegisterRef(ctx, fromLink, link); err != nil {
+		// 	panic(err)
+		// }
+		_ = fromLink
+		break
 	}
 	for _, proc := range pendingProcs {
 		if err = proc.Wait(ctx); err != nil {
