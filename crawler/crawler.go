@@ -18,21 +18,21 @@ import (
 func main() {
 	ctx := context.Background()
 
-	t1 := time.Now()
+	// t1 := time.Now()
 	self, err := ww.Init(ctx)
 	if err != nil {
 		panic(err)
 	}
 	defer self.Close()
-	t2 := time.Since(t1)
-	fmt.Printf("Took %f seconds to init process.\n", t2.Seconds())
+	// t2 := time.Since(t1)
+	// fmt.Printf("Took %f seconds to init process.\n", t2.Seconds())
 
 	if len(self.Args) < 4 {
 		panic("usage: ww cluster run crawler.wasm <neo4j user> <neo4j password> <neo4j url> <urls...>")
 	}
 
 	urls := self.Args[3:]
-	fmt.Printf("(%x) will crawl urls: %s\n", self.Pid, urls)
+	fmt.Printf("(%d) will crawl urls: %s\n", self.Pid, urls)
 
 	// The host points to its executor.
 	host := cluster.Host(self.Caps[0])
@@ -75,14 +75,19 @@ func main() {
 	}
 
 	fromLink, toLinks := extractLinks(srcUrl, string(res.Body))
+	if len(toLinks) == 0 {
+		fmt.Printf("(%d) found no new links.\n", self.Pid)
+	}
+
 	pendingProcs := make([]csp.Proc, 0)
 	for _, link := range toLinks {
-		fmt.Printf("- Found %s\n", link)
+		time.Sleep(2 * time.Second)
+		prefix := fmt.Sprintf("(%d) found %s ...", self.Pid, link)
 		if !neo4jSession.PageExists(ctx, link) {
-			fmt.Printf("Spawn crawler for %s\n", link)
+			fmt.Printf("%s crawl.\n", prefix)
 			proc, release := csp.Executor(executor).ExecFromCache(
 				ctx,
-				[]byte(self.Md5Sum),
+				[]byte(self.Hash),
 				self.Pid,
 				capnp.Client(csp.NewArgs(self.Args[0], self.Args[1], self.Args[2], link.String())),
 				capnp.Client(host.AddRef()),
@@ -91,17 +96,16 @@ func main() {
 			defer proc.Kill(ctx)
 			pendingProcs = append(pendingProcs, proc)
 		} else {
-			fmt.Printf("Skip page %s\n", link)
+			fmt.Printf("%s skip.\n", prefix)
 		}
 		// if err = neo4jSession.RegisterRef(ctx, fromLink, link); err != nil {
 		// 	panic(err)
 		// }
 		_ = fromLink
-		break
 	}
 	for _, proc := range pendingProcs {
 		if err = proc.Wait(ctx); err != nil {
-			panic(err)
+			fmt.Printf("Error waiting for subprocess: %s\n", err)
 		}
 	}
 }
