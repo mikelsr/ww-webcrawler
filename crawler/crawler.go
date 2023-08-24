@@ -6,13 +6,12 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/wetware/ww/api/cluster"
-	"github.com/wetware/ww/api/process"
-	http_api "github.com/wetware/ww/experiments/api/http"
-	"github.com/wetware/ww/experiments/api/tools"
-	"github.com/wetware/ww/experiments/pkg/http"
-	"github.com/wetware/ww/pkg/csp"
-	ww "github.com/wetware/ww/wasm"
+	http "github.com/mikelsr/ww-webcrawler/services/http/pkg"
+	http_api "github.com/mikelsr/ww-webcrawler/services/http/proto/pkg"
+	"github.com/wetware/pkg/api/cluster"
+	"github.com/wetware/pkg/api/process"
+	"github.com/wetware/pkg/cap/csp"
+	ww "github.com/wetware/pkg/guest/system"
 )
 
 func main() {
@@ -23,7 +22,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer self.Close()
+	defer func() {
+		for _, cap := range self.Caps {
+			cap.Release()
+		}
+	}()
 	// t2 := time.Since(t1)
 	// fmt.Printf("Took %f seconds to init process.\n", t2.Seconds())
 
@@ -32,7 +35,7 @@ func main() {
 	}
 
 	urls := self.Args[3:]
-	fmt.Printf("(%d) will crawl urls: %s\n", self.Pid, urls)
+	fmt.Printf("(%d) will crawl urls: %s\n", self.PID, urls)
 
 	// The host points to its executor.
 	host := cluster.Host(self.Caps[0])
@@ -42,18 +45,8 @@ func main() {
 	}
 	defer executor.Release()
 
-	// The executor points to the experimental tools.
-	tools, err := toolsFromExecutor(ctx, executor)
-	if err != nil {
-		panic(err)
-	}
-	defer tools.Release()
-
-	// The experimental tools have an http client.
-	r, err := httpFromTools(ctx, tools)
-	if err != nil {
-		panic(err)
-	}
+	// TODO register http service
+	r := http_api.Requester{}
 	defer r.Release()
 
 	requester := http.Requester(r)
@@ -76,21 +69,23 @@ func main() {
 
 	fromLink, toLinks := extractLinks(srcUrl, string(res.Body))
 	if len(toLinks) == 0 {
-		fmt.Printf("(%d) found no new links.\n", self.Pid)
+		fmt.Printf("(%d) found no new links.\n", self.PID)
 	}
 
 	pendingProcs := make([]csp.Proc, 0)
 	for _, link := range toLinks {
 		time.Sleep(2 * time.Second)
-		prefix := fmt.Sprintf("(%d) found %s ...", self.Pid, link)
+		prefix := fmt.Sprintf("(%d) found %s ...", self.PID, link)
 		if !neo4jSession.PageExists(ctx, link) {
 			fmt.Printf("%s crawl.\n", prefix)
+			bCtx, err := csp.NewBootContext().
+				WithArgs(self.Args[0], self.Args[1], self.Args[2], link.String()).
+				WithCaps(capnp.Client(host.AddRef()))
+			if err != nil {
+				panic(err)
+			}
 			proc, release := csp.Executor(executor).ExecFromCache(
-				ctx,
-				[]byte(self.Hash),
-				self.Pid,
-				capnp.Client(csp.NewArgs(self.Args[0], self.Args[1], self.Args[2], link.String())),
-				capnp.Client(host.AddRef()),
+				ctx, self.CID, self.PID, bCtx.Cap(),
 			)
 			defer release()
 			defer proc.Kill(ctx)
@@ -120,28 +115,4 @@ func executorFromHost(ctx context.Context, host cluster.Host) (process.Executor,
 	}
 
 	return res.Executor(), nil
-}
-
-func toolsFromExecutor(ctx context.Context, executor process.Executor) (tools.Tools, error) {
-	f, _ := executor.Tools(ctx, nil)
-	<-f.Done()
-
-	res, err := f.Struct()
-	if err != nil {
-		return tools.Tools{}, err
-	}
-
-	return res.Tools(), nil
-}
-
-func httpFromTools(ctx context.Context, tools tools.Tools) (http_api.Requester, error) {
-	f, _ := tools.Http(ctx, nil)
-	<-f.Done()
-
-	res, err := f.Struct()
-	if err != nil {
-		return http_api.Requester{}, err
-	}
-
-	return res.Http(), nil
 }

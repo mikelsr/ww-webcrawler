@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wetware/ww/experiments/pkg/http"
+	http "github.com/mikelsr/ww-webcrawler/services/http/pkg"
 )
 
 const (
