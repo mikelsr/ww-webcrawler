@@ -5,7 +5,8 @@ go 1.21
 require (
 	capnproto.org/go/capnp/v3 v3.0.0-alpha.30
 	github.com/libp2p/go-libp2p v0.30.0
-	github.com/wetware/pkg v0.1.0-alpha.1.0.20230908113641-6f95c63faeb5
+	github.com/mikelsr/raft-capnp v0.0.0-20230809075121-9431814534ff
+	github.com/wetware/pkg v0.1.0-alpha.1.0.20230908153327-0c58956d8fb4
 )
 
 require (
@@ -105,6 +106,7 @@ require (
 	github.com/stealthrocket/wazergo v0.19.1 // indirect
 	github.com/tetratelabs/wazero v1.5.0 // indirect
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
+	go.etcd.io/raft/v3 v3.0.0-20230805183326-89c97ed7f982 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/otel v1.16.0 // indirect
 	go.opentelemetry.io/otel/metric v1.16.0 // indirect
@@ -128,4 +130,7 @@ require (
 	zenhack.net/go/util v0.0.0-20230607025951-8b02fee814ae // indirect
 )
 
-// replace github.com/wetware/pkg v0.1.0-alpha.1.0.20230908113641-6f95c63faeb5 => /home/mikel/Code/github.com/wetware/pkg
+replace (
+	github.com/mikelsr/raft-capnp => /home/mikel/Code/github.com/mikelsr/raft-capnp
+	github.com/wetware/pkg => /home/mikel/Code/github.com/wetware/pkg
+)
