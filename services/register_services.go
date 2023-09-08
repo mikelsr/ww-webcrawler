@@ -24,18 +24,6 @@ import (
 const ns = "ww"
 const usage = "usage: register_services <key>"
 
-func exit(cause string) {
-	fmt.Println(cause)
-	os.Exit(1)
-}
-
-func key() string {
-	if len(os.Args) < 2 {
-		exit(usage)
-	}
-	return os.Args[1]
-}
-
 func main() {
 
 	// Setup the environment.
@@ -46,6 +34,7 @@ func main() {
 	h := libp2pHost()
 
 	// Bootstrap p2p connection.
+	log("p2p bootstrap...")
 	bootstrap, err := boot.DialString(h, bootstrapAddr())
 	if err != nil {
 		exit(err.Error())
@@ -53,6 +42,7 @@ func main() {
 	defer bootstrap.Close()
 
 	// Request a session from a Wetware node.
+	log("wetware login...")
 	sess, err := vat.Dialer{
 		Host:    h,
 		Account: auth.SignerFromHost(h),
@@ -63,13 +53,33 @@ func main() {
 	defer sess.Release()
 
 	// Register the HTTP requester on the Wetware node.
+	log("register http provider...")
 	sess.CapStore().Set(ctx, k, capnp.Client(r))
 
 	// Provide until the context is cancelled.
+	log("providing...")
 	<-ctx.Done()
 	if ctx.Err() != nil {
 		exit(ctx.Err().Error())
 	}
+	log("graceful exit")
+}
+
+func key() string {
+	if len(os.Args) < 2 {
+		exit(usage)
+	}
+	return os.Args[1]
+}
+
+func exit(cause string) {
+	log("exit with cause: %s", cause)
+	os.Exit(1)
+}
+
+func log(t string, v ...interface{}) {
+	s := fmt.Sprintf(t, v...)
+	fmt.Printf("[provider] %s\n", s)
 }
 
 // outbound libp2p host.
