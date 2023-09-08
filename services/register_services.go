@@ -9,6 +9,7 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/host"
 	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	tcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
 
@@ -36,27 +37,22 @@ func key() string {
 }
 
 func main() {
+
+	// Setup the environment.
 	k := key()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	r := http_api.Requester_ServerToClient(http.HttpServer{})
+	h := libp2pHost()
 
-	h, err := libp2p.New(
-		libp2p.NoTransports,
-		libp2p.NoListenAddrs,
-		libp2p.Transport(tcp.NewTCPTransport),
-		libp2p.Transport(quic.NewTransport))
-	if err != nil {
-		exit(err.Error())
-	}
-
+	// Bootstrap p2p connection.
 	bootstrap, err := boot.DialString(h, bootstrapAddr())
 	if err != nil {
 		exit(err.Error())
 	}
 	defer bootstrap.Close()
 
+	// Request a session from a Wetware node.
 	sess, err := vat.Dialer{
 		Host:    h,
 		Account: auth.SignerFromHost(h),
@@ -66,12 +62,27 @@ func main() {
 	}
 	defer sess.Release()
 
+	// Register the HTTP requester on the Wetware node.
 	sess.CapStore().Set(ctx, k, capnp.Client(r))
 
+	// Provide until the context is cancelled.
 	<-ctx.Done()
 	if ctx.Err() != nil {
 		exit(ctx.Err().Error())
 	}
+}
+
+// outbound libp2p host.
+func libp2pHost() host.Host {
+	h, err := libp2p.New(
+		libp2p.NoTransports,
+		libp2p.NoListenAddrs,
+		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(quic.NewTransport))
+	if err != nil {
+		exit(err.Error())
+	}
+	return h
 }
 
 func bootstrapAddr() string {
