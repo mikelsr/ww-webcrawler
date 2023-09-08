@@ -2,52 +2,76 @@ package main
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
+	"os"
 	"path"
 	"runtime"
 
-	"github.com/libp2p/go-libp2p/core/record"
+	"capnproto.org/go/capnp/v3"
+	"github.com/libp2p/go-libp2p"
+	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+	tcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
+
+	"github.com/wetware/pkg/auth"
+	"github.com/wetware/pkg/boot"
+	"github.com/wetware/pkg/vat"
+
 	http "github.com/mikelsr/ww-webcrawler/services/http/pkg/server"
 	http_api "github.com/mikelsr/ww-webcrawler/services/http/proto/pkg"
-	"github.com/wetware/pkg/cap/host"
-	"github.com/wetware/pkg/client"
-	"github.com/wetware/pkg/system"
 )
 
+const ns = "ww"
+const usage = "usage: register_services <key>"
+
+func exit(cause string) {
+	fmt.Println(cause)
+	os.Exit(1)
+}
+
+func key() string {
+	if len(os.Args) < 2 {
+		exit(usage)
+	}
+	return os.Args[1]
+}
+
 func main() {
+	k := key()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	r := http_api.Requester_ServerToClient(http.HttpServer{})
 
-	h, err := client.NewHost()
+	h, err := libp2p.New(
+		libp2p.NoTransports,
+		libp2p.NoListenAddrs,
+		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(quic.NewTransport))
 	if err != nil {
-		panic(err)
+		exit(err.Error())
 	}
 
-	host, err := system.Bootstrap[host.Host](ctx, h, client.Dialer{
-		Logger:   slog.Default(),
-		NS:       "ww",
-		Peers:    []string{},
-		Discover: bootstrapAddr(),
-	})
+	bootstrap, err := boot.DialString(h, bootstrapAddr())
 	if err != nil {
-		panic(err)
+		exit(err.Error())
 	}
-	defer host.Release()
+	defer bootstrap.Close()
 
-	reg, release := host.Registry(ctx)
-	defer release()
-
-	pk, _ := h.ID().ExtractPublicKey()
-	envelope := &record.Envelope{
-		PublicKey:   pk,
-		PayloadType: []byte{}, // TODO
-		RawPayload:  []byte{}, // TODO build from r
+	sess, err := vat.Dialer{
+		Host:    h,
+		Account: auth.SignerFromHost(h),
+	}.DialDiscover(ctx, bootstrap, ns)
+	if err != nil {
+		exit(err.Error())
 	}
-	topic := nil // TODO
-	reg.Provide(ctx, topic, envelope)
-	// TODO block until cancel
+	defer sess.Release()
+
+	sess.CapStore().Set(ctx, k, capnp.Client(r))
+
+	<-ctx.Done()
+	if ctx.Err() != nil {
+		exit(ctx.Err().Error())
+	}
 }
 
 func bootstrapAddr() string {
