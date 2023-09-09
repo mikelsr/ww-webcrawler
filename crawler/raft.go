@@ -1,12 +1,8 @@
 package main
 
-// import (
-// 	"context"
+// "context"
 
-// 	"capnproto.org/go/capnp/v3"
-// 	raft_api "github.com/mikelsr/raft-capnp/proto/api"
-// 	"github.com/wetware/pkg/cap/csp"
-// )
+// "github.com/wetware/pkg/cap/csp"
 
 // func retrieveRaftNode(context.Context, uint64) (raft_api.Raft, error) {
 // 	return raft_api.Raft{}, nil
@@ -29,4 +25,8 @@ package main
 // 			return
 // 		}
 // 	}
+// }
+
+// func RetrieveRaftNode(ctx context.Context, id uint32) (api.Raft, error) {
+// 	return api.Raft{}, nil
 // }

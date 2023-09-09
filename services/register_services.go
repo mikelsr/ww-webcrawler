@@ -31,7 +31,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r := http_api.Requester_ServerToClient(http.HttpServer{})
+	defer r.Release()
 	h := libp2pHost()
+	defer h.Close()
 
 	// Bootstrap p2p connection.
 	log("p2p bootstrap...")
@@ -54,7 +56,10 @@ func main() {
 
 	// Register the HTTP requester on the Wetware node.
 	log("register http provider...")
-	sess.CapStore().Set(ctx, k, capnp.Client(r))
+	err = sess.CapStore().Set(ctx, k, capnp.Client(r))
+	if err != nil {
+		exit(err.Error())
+	}
 
 	// Provide until the context is cancelled.
 	log("providing...")
