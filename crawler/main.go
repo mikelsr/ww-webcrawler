@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	// Order of argv items
+	// Order of argv items.
 	HTTP        = iota // ID used in the capstore for the HTTP capability.
 	WORKERS            // Number of workers (coord).
 	URL                // Entrypoint URL (coord).
@@ -22,13 +22,14 @@ const (
 	WORKER_ID          // Worker ID of this process.
 	RAFT_LINK          // ID of a known raft node, mainly the coordinator.
 
+	// Misc.
 	MAIN = 3 // The main process will receive WORKERS, HTTP, URL, but not the rest.
 
 	ID_BASE          = 16    // ID encoding base.
 	ID_OFFSET uint64 = 0x100 // Offset for Raft IDs.
 )
 
-var log = raft.DefaultLogger
+var log = raft.DefaultLogger(true)
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -84,17 +85,17 @@ func main() {
 		WithStorage(raft.DefaultStorage()).
 		WithRaftNodeRetrieval(crawler.RetrieveRaftNode).
 		WithOnNewValue(raft.NilOnNewValue).
-		WithLogger(raft.DefaultLogger).
+		WithLogger(log).
 		WithID(id)
 
 	crawler.Raft = Raft{
 		Node:   node,
-		Cap:    node.Cap(),
+		Cap:    node.Cap().AddRef(),
 		Prefix: prefix, // We use a prefix to avoid collisions
 	}
 
 	// Register raft node in capstore.
-	crawler.CapStore.Set(ctx, crawler.IdToKey(crawler.Node.ID), capnp.Client(crawler.Cap))
+	crawler.CapStore.Set(ctx, crawler.IdToKey(crawler.Node.ID), capnp.Client(crawler.Cap.AddRef()))
 
 	// main process
 	// if !crawler.IsWorker {

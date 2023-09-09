@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"capnproto.org/go/capnp/v3"
 	raft_api "github.com/mikelsr/raft-capnp/proto/api"
@@ -58,12 +59,11 @@ type Raft struct {
 
 // Retrieve a Raft Node capability from the CapStore.
 func (c *Crawler) RetrieveRaftNode(ctx context.Context, id uint64) (raft_api.Raft, error) {
-	fmt.Printf("RETRIEVE %x FROM NODE %x\n", id, c.ID)
 	r, err := c.CapStore.Get(ctx, c.IdToKey(id))
 	if err != nil {
 		return raft_api.Raft{}, nil
 	}
-	return raft_api.Raft(r.AddRef()), nil
+	return raft_api.Raft(r.AddRef()).AddRef(), nil // TODO mikel
 }
 
 func (c *Crawler) IdToKey(id uint64) string {
@@ -71,16 +71,25 @@ func (c *Crawler) IdToKey(id uint64) string {
 }
 
 func (c *Crawler) RaftTest(ctx context.Context) {
-	go c.Node.Start(ctx)
 	if c.IsWorker {
+		go c.Node.Start(ctx)
 		// Find the raft node of the coordinator process
 		if err := c.join(ctx); err != nil {
 			panic(err)
 		}
 	} else {
+		c.Init()
+		go c.Node.Start(ctx)
+		for c.Raft.Raft.Status().Lead != c.ID {
+			time.Sleep(10 * time.Millisecond)
+		}
 		c.spawnRaft(ctx)
-		<-ctx.Done()
 	}
+	for {
+		log.Infof("[%x] peers: %v\n", c.ID, c.Raft.Node.Peers())
+		time.Sleep(1 * time.Second)
+	}
+	<-ctx.Done()
 }
 
 func (c *Crawler) join(ctx context.Context) error {
@@ -109,7 +118,18 @@ func (c *Crawler) join(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Infof("DISCOVERED NODES: %v\n", nodes)
+
+	peers := make([]raft_api.Raft, nodes.Len())
+	for i := 0; i < nodes.Len(); i++ {
+		peers[i], err = nodes.At(i)
+		if err != nil {
+			return err
+		}
+	}
+	for _, peer := range peers {
+		c.Raft.View.AddPeer(ctx, peer.AddRef())
+	}
+
 	return nil
 }
 
