@@ -98,7 +98,7 @@ func (c *Crawler) join(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	f, release := raft_api.Raft(coord).Join(ctx, func(r raft_api.Raft_join_Params) error {
+	f, release := raft_api.Raft(coord).Add(ctx, func(r raft_api.Raft_add_Params) error {
 		return r.SetNode(c.Cap.AddRef())
 	})
 	defer release()

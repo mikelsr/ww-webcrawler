@@ -4,9 +4,10 @@ go 1.21
 
 require (
 	capnproto.org/go/capnp/v3 v3.0.0-alpha.30
+	github.com/google/uuid v1.3.0
 	github.com/libp2p/go-libp2p v0.30.0
-	github.com/mikelsr/raft-capnp v0.0.0-20230809075121-9431814534ff
-	github.com/wetware/pkg v0.1.0-alpha.1.0.20230908153327-0c58956d8fb4
+	github.com/mikelsr/raft-capnp v0.0.0-20230910174908-35f5059b11ee
+	github.com/wetware/pkg v0.1.0-alpha.1.0.20230909123845-bf9821d72e93
 )
 
 require (
@@ -31,7 +32,6 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/gopacket v1.1.19 // indirect
 	github.com/google/pprof v0.0.0-20230821062121-407c9e7a662f // indirect
-	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
