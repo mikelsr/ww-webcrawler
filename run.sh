@@ -12,7 +12,7 @@ key=$( head /dev/urandom | tr -dc A-Za-z0-9 | head -c32 )
 serv_pid=$!
 
 # run the crawler in the foreground
-ww cluster run ./wasm/crawler.wasm $key ${@:1} || true
+ww run ./wasm/crawler.wasm $key ${@:1} || true
 
 kill $serv_pid
 
