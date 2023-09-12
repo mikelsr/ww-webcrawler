@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"strconv"
 
 	"capnproto.org/go/capnp/v3"
@@ -13,25 +14,25 @@ import (
 )
 
 const (
-	// Order of argv items.
-	HTTP        = iota // ID used in the capstore for the HTTP capability.
-	WORKERS            // Number of workers (coord).
-	URL                // Entrypoint URL (coord).
-	COORDINATOR        // ID used in the CapStore to store the coordinator capability.
-	PREFIX             // Prefix used to store raft node capabilities of this Raft cluster.
-	WORKER_ID          // Worker ID of this process.
-	RAFT_LINK          // ID of a known raft node, mainly the coordinator.
+	HTTP      = iota // ID used in the capstore for the HTTP capability.
+	NODES            // Number of nodes (coord).
+	URL              // Entrypoint URL (coord).
+	PREFIX           // Prefix used to store raft node capabilities of this Raft cluster.
+	RAFT_LINK        // ID of a known raft node, mainly the coordinator.
 
-	// Misc.
-	MAIN = 3 // The main process will receive WORKERS, HTTP, URL, but not the rest.
-
-	ID_BASE          = 16    // ID encoding base.
-	ID_OFFSET uint64 = 0x100 // Offset for Raft IDs.
+	COORD_ARGS = 3  // Number of arguments the first process will get.
+	ID_BASE    = 16 // ID encoding base.
+	USAGE      = "ww cluster run ./wasm/crawler.wasm <http capstore key> <nodes> <url>"
 )
 
 var log = raft.DefaultLogger(true)
 
 func main() {
+	if len(ww.Args()) < COORD_ARGS {
+		log.Error("not enough arguments")
+		log.Error(USAGE)
+		os.Exit(1)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Log into wetware cluster.
@@ -47,13 +48,19 @@ func main() {
 		panic(err)
 	}
 
+	// Use a unique prefix to store and retrieve raft capabilities
+	// to avoid conflicts.
+	var prefix string
+	if isCoordinator() {
+		prefix = uuid.NewString()
+	} else {
+		prefix = ww.Args()[PREFIX]
+	}
+
 	// Build the crawler.
 	crawler := Crawler{
-		Cancel:    cancel,
-		Id:        uuid.NewString(),
-		IsWorker:  len(ww.Args()) > MAIN,
-		Workers:   make(map[uint64]*Worker),
-		NewWorker: make(chan *Worker),
+		Cancel: cancel,
+		Prefix: prefix,
 
 		Http: Http{
 			Key:       ww.Args()[HTTP],
@@ -67,43 +74,27 @@ func main() {
 	}
 
 	// Build a raft node.
-	var (
-		id     uint64
-		prefix string
-	)
-	if crawler.IsWorker {
-		id = parseUint64(ww.Args()[WORKER_ID], ID_BASE)
-		prefix = ww.Args()[PREFIX]
-	} else {
-		id = ID_OFFSET
-		prefix = uuid.NewString()
-	}
-
 	node := raft.New().
 		WithRaftConfig(raft.DefaultConfig()).
 		WithRaftStore(raft.DefaultRaftStore).
 		WithStorage(raft.DefaultStorage()).
-		WithRaftNodeRetrieval(crawler.RetrieveRaftNode).
-		WithOnNewValue(raft.NilOnNewValue).
-		WithLogger(log).
-		WithID(id)
+		WithRaftNodeRetrieval(crawler.retrieveRaftNode).
+		WithOnNewValue(crawler.onNewValue).
+		WithLogger(log)
 
 	crawler.Raft = Raft{
-		Node:   node,
-		Cap:    node.Cap().AddRef(),
-		Prefix: prefix, // We use a prefix to avoid collisions
+		Node: node,
+		Cap:  node.Cap().AddRef(),
 	}
 
 	// Register raft node in capstore.
-	crawler.CapStore.Set(ctx, crawler.IdToKey(crawler.Node.ID), capnp.Client(crawler.Cap.AddRef()))
+	crawler.CapStore.Set(ctx, crawler.idToKey(crawler.Node.ID), capnp.Client(crawler.Cap.AddRef()))
+	// Start the Raft node for this crawler.
+	crawler.startRaftNode(ctx)
 
-	// main process
-	// if !crawler.IsWorker {
-	// 	crawler.Coordinate(ctx)
-	// } else { // worker process
-	// 	crawler.Work(ctx)
-	// }
-	crawler.RaftTest(ctx)
+	crawler.testPutValue(ctx)
+
+	<-ctx.Done()
 
 	// ---
 
@@ -180,6 +171,10 @@ func main() {
 	// 		fmt.Printf("Error waiting for subprocess: %s\n", err)
 	// 	}
 	// }
+}
+
+func isCoordinator() bool {
+	return len(ww.Args()) == COORD_ARGS
 }
 
 func parseUint64(s string, base int) uint64 {

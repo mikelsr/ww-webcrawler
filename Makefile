@@ -35,7 +35,6 @@ wasm:
 		./wasm/crawler.wasm \
 		./crawler/main.go \
 		./crawler/crawler.go \
-		./crawler/raft.go \
 		./crawler/http.go \
 		./crawler/neo4j.go
 

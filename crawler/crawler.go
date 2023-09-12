@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"capnproto.org/go/capnp/v3"
 	raft_api "github.com/mikelsr/raft-capnp/proto/api"
 	"github.com/mikelsr/raft-capnp/raft"
 	"github.com/wetware/pkg/api/core"
@@ -25,18 +24,8 @@ type Crawler struct {
 	Raft
 	Ww
 
-	Cancel    context.CancelFunc
-	Id        string
-	IsWorker  bool
-	Workers   map[uint64]*Worker
-	NewWorker chan *Worker
-}
-
-type Worker struct {
-	Id uint64
-	csp.Proc
-	api.Crawler
-	capnp.ReleaseFunc
+	Prefix string
+	Cancel context.CancelFunc
 }
 
 type Ww struct {
@@ -46,62 +35,87 @@ type Ww struct {
 }
 
 type Http struct {
-	Key string
+	Key string // Key pointing to the HTTP capability in the capstore.
 	http.Requester
 }
 
 type Raft struct {
-	*raft.Node               // implementation
-	Cap        raft_api.Raft // capability
-
-	Prefix string
+	*raft.Node               // Raft node implementation.
+	Cap        raft_api.Raft // Raft node capability.
 }
 
 // Retrieve a Raft Node capability from the CapStore.
-func (c *Crawler) RetrieveRaftNode(ctx context.Context, id uint64) (raft_api.Raft, error) {
-	r, err := c.CapStore.Get(ctx, c.IdToKey(id))
+func (c *Crawler) retrieveRaftNode(ctx context.Context, id uint64) (raft_api.Raft, error) {
+	r, err := c.CapStore.Get(ctx, c.idToKey(id))
 	if err != nil {
 		return raft_api.Raft{}, nil
 	}
 	return raft_api.Raft(r.AddRef()).AddRef(), nil // TODO mikel
 }
 
-func (c *Crawler) IdToKey(id uint64) string {
-	return fmt.Sprintf("%s-%x", c.Prefix, id)
+func (c *Crawler) onNewValue(item raft.Item) error {
+	log.Warningf("NEW VALUE: {'%s': '%s'}\n", string(item.Key), string(item.Value))
+	return nil
 }
 
-func (c *Crawler) RaftTest(ctx context.Context) {
-	if c.IsWorker {
-		go c.Node.Start(ctx)
-		// Find the raft node of the coordinator process
-		if err := c.join(ctx); err != nil {
-			panic(err)
-		}
-	} else {
+// Start a raft node.
+func (c *Crawler) startRaftNode(ctx context.Context) {
+	// the coordinator will spawn the rest of the crawlers.
+	if isCoordinator() {
 		c.Init()
 		go c.Node.Start(ctx)
 		for c.Raft.Raft.Status().Lead != c.ID {
 			time.Sleep(10 * time.Millisecond)
 		}
-		c.spawnRaft(ctx)
+		n := parseUint64(ww.Args()[NODES], 10)
+		c.spawnCrawlers(ctx, n)
+	} else { // the rest will join the coordinator.
+		go c.Node.Start(ctx)
+		// Join the Raft by joining the coordinator.
+		if err := c.join(ctx); err != nil {
+			panic(err)
+		}
 	}
-	for {
-		log.Infof("[%x] peers: %v\n", c.ID, c.Raft.Node.Peers())
-		time.Sleep(1 * time.Second)
-	}
-	<-ctx.Done()
 }
 
+// Spawn n crawler processes with raft nodes of this cluster.
+func (c *Crawler) spawnCrawlers(ctx context.Context, n uint64) error {
+	log.Infof("[%x] spawn %d crawlers\n", c.ID, n)
+	for i := uint64(0); i < uint64(n); i++ {
+		log.Infof("[%x] spawn crawler %x\n", c.ID, i)
+		// p, release := c.Executor.ExecCached(
+		// Won't keep track of the other processes.
+		_, release := c.Executor.ExecCached(
+			ctx,
+			core.Session(c.Session),
+			ww.Cid(),
+			ww.Pid(),
+			append(ww.Args(), []string{
+				c.Prefix,
+				strconv.FormatUint(c.Node.ID, ID_BASE),
+			}...)...,
+		)
+		defer release()
+		log.Infof("[%x] spawn crawler %x done\n", c.ID, i)
+	}
+	return nil
+}
+
+// Join the coordinator Raft node.
 func (c *Crawler) join(ctx context.Context) error {
+	// Find the coordinator.
 	remoteRaftId := parseUint64(ww.Args()[RAFT_LINK], ID_BASE)
-	coord, err := c.CapStore.Get(ctx, c.IdToKey(remoteRaftId))
+	// Get the coordinator Raft capability.
+	coord, err := c.CapStore.Get(ctx, c.idToKey(remoteRaftId))
 	if err != nil {
 		return err
 	}
+	// Add oneself to the Raft.
 	f, release := raft_api.Raft(coord).Add(ctx, func(r raft_api.Raft_add_Params) error {
 		return r.SetNode(c.Cap.AddRef())
 	})
 	defer release()
+	// Wait until the RPC is done and check that it has no errors.
 	<-f.Done()
 	s, err := f.Struct()
 	if err != nil {
@@ -114,147 +128,45 @@ func (c *Crawler) join(ctx context.Context) error {
 		}
 		return errors.New(e)
 	}
+	// The coordinator replied with known nodes.
 	nodes, err := s.Nodes()
 	if err != nil {
 		return err
 	}
-
-	peers := make([]raft_api.Raft, nodes.Len())
+	// Add them to the known nodes list.
 	for i := 0; i < nodes.Len(); i++ {
-		peers[i], err = nodes.At(i)
+		peer, err := nodes.At(i)
 		if err != nil {
 			return err
 		}
-	}
-	for _, peer := range peers {
 		c.Raft.View.AddPeer(ctx, peer.AddRef())
 	}
 
 	return nil
 }
 
-func (c *Crawler) spawnRaft(ctx context.Context) {
-	workers := parseUint64(ww.Args()[WORKERS], 10)
-	log.Infof("[%x] spawn %d workers\n", c.ID, workers)
-	for i := ID_OFFSET + 1; i < ID_OFFSET+workers+1; i++ {
-		log.Infof("[%x] spawn worker %x\n", c.ID, i)
-		p, release := c.Executor.ExecCached(
-			ctx,
-			core.Session(c.Session), // TODO if it fails, AddRef
-			ww.Cid(),
-			ww.Pid(),
-			append(ww.Args(), []string{
-				c.Id,
-				c.Prefix,
-				strconv.FormatUint(i, ID_BASE),
-				strconv.FormatUint(c.Node.ID, ID_BASE),
-			}...)...,
-		)
-		c.Workers[i] = &Worker{
-			Id:          i,
-			Proc:        p,
-			ReleaseFunc: release,
-		}
-		log.Infof("[%x] spawn worker %x done\n", c.ID, i)
-	}
-}
-
-// func (c *Crawler) getCoordinator(ctx context.Context, id string) (api.Crawler, error) {
-// 	cli, err := c.CapStore.Get(ctx, id)
-// 	return api.Crawler(cli), err
-// }
-
-func (c *Crawler) AddWorker(ctx context.Context, call api.Crawler_addWorker) error {
-	// if c.IsWorker {
-	// 	return errors.New("crawler is a worker")
-	// }
-	// select {
-	// case <-ctx.Done():
-	// 	return ctx.Err()
-	// case c.NewWorker <- &Worker{
-	// 	Crawler: call.Args().Worker(),
-	// 	Id:      call.Args().Id(),
-	// }:
-	// }
-	return nil
+// Combine the prefix and id to form the CapStore key for a node.
+func (c *Crawler) idToKey(id uint64) string {
+	return fmt.Sprintf("%s-%x", c.Prefix, id)
 }
 
 func (c *Crawler) Crawl(ctx context.Context, call api.Crawler_crawl) error {
 	return nil
 }
 
-func (c *Crawler) addSelf(ctx context.Context, coord api.Crawler) error {
-	// f, release := coord.AddWorker(ctx, func(p api.Crawler_addWorker_Params) error {
-	// 	return p.SetWorker(api.Crawler_ServerToClient(c))
-	// })
-	// defer release()
-	// <-f.Done()
+func (c *Crawler) testPutValue(ctx context.Context) error {
+	c.Raft.DirectPut(ctx, raft.Item{
+		Key:   []byte(fmt.Sprintf("hi from %d", c.ID)),
+		Value: []byte(fmt.Sprintf("there from %d", c.ID)),
+	})
 	return nil
 }
 
-func (c *Crawler) Coordinate(ctx context.Context) error {
-	// if err := c.SpawnWorkers(ctx, parseUint64(ww.Args()[WORKERS])); err != nil {
-	// 	return err
-	// }
-	return nil
-}
-
-func (c *Crawler) SpawnWorkers(ctx context.Context, n uint64) error {
-	// if c.IsWorker {
-	// 	return errors.New("cannot spawn workers as a worker")
-	// }
-	// for i := uint64(0); i < n; i++ {
-	// 	c.Executor.ExecCached(
-	// 		ctx,
-	// 		core.Session(c.Session), // TODO if it fails, AddRef
-	// 		ww.Cid(),
-	// 		ww.Pid(),
-	// 		[]string{}..., // TODO
-	// 	)
-	// }
-	// c.waitForWorkers(ctx, n)
-	return nil
-}
-
-// wait for every worker to be created
-func (c *Crawler) waitForWorkers(ctx context.Context, n uint64) error {
-	// i := uint64(0)
-	// for i < n {
-	// 	select {
-	// 	case <-ctx.Done():
-	// 		return ctx.Err()
-	// 	case newWorker := <-c.NewWorker:
-	// 		worker := c.Workers[newWorker.Id]
-	// 		worker.Crawler = newWorker.Crawler // TODO addref?
-	// 	}
-	// 	i++
-	// }
-	return nil
-}
-
-func (c *Crawler) assignWork(ctx context.Context, w Worker) error {
-	return nil
-}
-
-func (c *Crawler) Work(ctx context.Context) error {
-	// c.Prefix = ww.Args()[PREFIX]
-	// mainRaftId := ww.Args()[RAFT_LINK]
-	// id, err := strconv.ParseUint(mainRaftId, 10, 64)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// err = c.Node.Register(ctx, id)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// coord, err := c.getCoordinator(ctx, ww.Args()[COORDINATOR])
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// if err = c.addSelf(ctx, coord); err != nil {
-	// 	panic(err)
-	// }
-	// // Block until the context is cancelled.
-	// <-ctx.Done()
+func (c *Crawler) testGetValue(ctx context.Context, k string) error {
+	if _, ok := c.Raft.Map.Load(k); ok {
+		fmt.Println("found")
+		return nil
+	}
+	fmt.Println("not found")
 	return nil
 }
