@@ -6,7 +6,7 @@ require (
 	capnproto.org/go/capnp/v3 v3.0.0-alpha.30
 	github.com/google/uuid v1.3.0
 	github.com/libp2p/go-libp2p v0.30.0
-	github.com/mikelsr/raft-capnp v0.0.0-20230910174908-35f5059b11ee
+	github.com/mikelsr/raft-capnp v0.0.0-20230912102149-084fccbad415
 	github.com/wetware/pkg v0.1.0-alpha.1.0.20230909123845-bf9821d72e93
 )
 
