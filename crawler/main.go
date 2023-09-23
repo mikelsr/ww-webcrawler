@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"time"
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/google/uuid"
@@ -23,6 +24,11 @@ const (
 	COORD_ARGS = 3  // Number of arguments the first process will get.
 	ID_BASE    = 16 // ID encoding base.
 	USAGE      = "ww cluster run ./wasm/crawler.wasm <http capstore key> <nodes> <url>"
+
+	QUEUE_CAP          = 20              // Maximum size of the local URL queue.
+	CLAIM_CHECK_PERIOD = 1 * time.Minute // Period in between claim eviction cheks.
+	CLAIM_TIMEOUT      = 5 * time.Minute // Claim timeout.
+	URL_ITER_PERIOD    = 1 * time.Second
 )
 
 var log = raft.DefaultLogger(true)
@@ -99,9 +105,11 @@ func main() {
 	// Start the Raft node for this crawler.
 	crawler.startRaftNode(ctx)
 
-	crawler.testPutValue(ctx)
-
-	<-ctx.Done()
+	// first process will put the arg url on its local queue.
+	if isCoordinator() {
+		crawler.LocalQueue.Put(ww.Args()[URL])
+	}
+	crawler.CrawlForever(ctx)
 
 	// ---
 
