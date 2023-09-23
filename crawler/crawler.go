@@ -221,15 +221,30 @@ func (c *Crawler) idToKey(id uint64) string {
 	return fmt.Sprintf("%s-%x", c.Prefix, id)
 }
 
-func (c *Crawler) Crawl(ctx context.Context, call api.Crawler_crawl) error {
-	return nil
+// Loop claim eviction.
+func (c *Crawler) evictClaimsForever(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(CLAIM_CHECK_PERIOD):
+			c.evictClaims(ctx)
+		}
+	}
 }
 
-func (c *Crawler) testPutValue(ctx context.Context) error {
-	c.Raft.DirectPut(ctx, raft.Item{
-		Key:   []byte(fmt.Sprintf("hi from %d", c.ID)),
-		Value: []byte(fmt.Sprintf("there from %d", c.ID)),
+// Moved claimed URLs whose claim has expired to the global queue.
+func (c *Crawler) evictClaims(ctx context.Context) {
+	c.Claimed.Range(func(key, value any) bool {
+		claimDate := value.(time.Time)
+		if claimDate.Add(CLAIM_TIMEOUT).Before(time.Now()) {
+			url := key.(string)
+			c.Claimed.Pop(url)
+			c.GlobalPool.Put(url)
+		}
+		return true
 	})
+}
 	return nil
 }
 
