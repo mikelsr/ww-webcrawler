@@ -62,6 +62,13 @@ func main() {
 		Cancel: cancel,
 		Prefix: prefix,
 
+		Urls: Urls{
+			LocalQueue: NewUniqueQueue[string](QUEUE_CAP),
+			GlobalPool: NewSet[string](),
+			Claimed:    NewTimedSet[string](),
+			Visited:    NewSet[string](),
+		},
+
 		Http: Http{
 			Key:       ww.Args()[HTTP],
 			Requester: http.Requester(httpCli),

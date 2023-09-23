@@ -14,7 +14,6 @@ const quotedUrlPattern = `"(?P<Link>` +
 const hrefPattern = `<a\s+(?:[^>]*?\s+)?href=` + quotedUrlPattern
 
 type link struct {
-	Full   string
 	Proto  string
 	Domain string
 	Path   string
