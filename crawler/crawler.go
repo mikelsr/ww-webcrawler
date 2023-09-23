@@ -220,6 +220,76 @@ func (c *Crawler) join(ctx context.Context) error {
 func (c *Crawler) idToKey(id uint64) string {
 	return fmt.Sprintf("%s-%x", c.Prefix, id)
 }
+// Crawl until the context is canceled.
+func (c *Crawler) CrawlForever(ctx context.Context) error {
+	// Start claim eviction goroutine.
+	go c.evictClaimsForever(ctx)
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		url, err := c.NextUrl(ctx)
+		if err != nil {
+			// don't overload the CPU
+			c.Logger.Debugf("[%x] error getting next url: %s", c.ID, err)
+			runtime.Gosched()
+			// TODO remove, its here to avoid DoS bans on my home network.
+			time.Sleep(URL_ITER_PERIOD)
+			continue
+		}
+		refs, err := c.Crawl(ctx, url)
+		if err != nil {
+			c.Logger.Errorf("[%x] error crawling %s: %s", c.ID, url, err)
+			continue
+		}
+		err = c.reportVisits(ctx, url)
+		if err != nil {
+			c.Logger.Errorf("[%x] error reporting %s: %s", c.ID, url, err)
+		}
+		err = c.sortAndSend(ctx, refs...)
+		if err != nil {
+			c.Logger.Error("[%x] %s", c.ID, err)
+		}
+	}
+}
+
+// Crawls a URL and returns a list of the hrefs it found.
+func (c *Crawler) Crawl(ctx context.Context, url string) ([]link, error) {
+	c.Logger.Debugf("[%x] crawl %s", c.ID, url)
+	res, err := c.Http.Get(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+
+	fromLink, toLinks := extractLinks(url, string(res.Body))
+	c.Logger.Debugf("[%x] found %d urls crawling %s: %v", c.ID, len(toLinks), fromLink, toLinks)
+	return toLinks, nil
+}
+
+// Get the next url to search:
+// 1. Check the local queue. If empty:
+// 2. Claim a URL from the local queue. If not possible:
+// 3. Run an eviction round. If any claims were evicted, the next call to
+// NextUrl should claim it from the global pool.
+func (c *Crawler) NextUrl(ctx context.Context) (string, error) {
+	if c.LocalQueue.Size() > 0 {
+		return c.LocalQueue.Get()
+	} else {
+		if c.GlobalPool.Size() > 0 {
+			url, ok := c.GlobalPool.PopRandom()
+			if !ok { // pool was emptied between Size() and PopRandom()
+				return "", errors.New("error fetching url from global pool")
+			}
+			c.claimUrls(ctx, url)
+			return url, nil
+		} else {
+			if c.Claimed.Size() > 0 {
+				c.evictClaims(ctx)
+			}
+			return "", errors.New("no new urls found")
+		}
+	}
+}
 
 // Loop claim eviction.
 func (c *Crawler) evictClaimsForever(ctx context.Context) {
