@@ -40,7 +40,8 @@ func (s TimedSet[T]) Has(t T) bool {
 }
 
 func (s TimedSet[T]) PopOldest() (T, bool) {
-	var k *T
+	var zero T
+	k := &zero
 
 	// start with the latest time possible
 	faraway := time.Unix(1<<63-1, 0)

@@ -40,7 +40,8 @@ func (s Set[T]) Pop(k T) (T, bool) {
 }
 
 func (s Set[T]) PopRandom() (T, bool) {
-	var k *T
+	var zero T
+	k := &zero
 	size := s.size.Load()
 	s.sm.Range(func(key, value any) bool {
 		*k = key.(T)
