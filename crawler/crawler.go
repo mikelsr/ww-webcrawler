@@ -73,8 +73,59 @@ func (c *Crawler) retrieveRaftNode(ctx context.Context, id uint64) (raft_api.Raf
 	return raft_api.Raft(r.AddRef()).AddRef(), nil // TODO mikel
 }
 
+// process messages from other crawlers.
 func (c *Crawler) onNewValue(item raft.Item) error {
-	log.Warningf("NEW VALUE: {'%s': '%s'}\n", string(item.Key), string(item.Value))
+	var err error
+	var msg Message
+	if err := msg.FromItem(item); err != nil {
+		return err
+	}
+	c.Logger.Debugf("[%x] received message: %v", c.ID, msg)
+	switch msg.MessageType {
+	case Visit:
+		err = c.onUrlVisit(msg)
+	case Claim:
+		err = c.onUrlClaim(msg)
+	case Report:
+		err = c.onUrlReport(msg)
+	default:
+		err = fmt.Errorf("unrecognized MessageType %d", msg.MessageType)
+	}
+	return err
+}
+
+// register visited url and possibly remove it from claims and local queue.
+func (c *Crawler) onUrlVisit(msg Message) error {
+	for _, url := range msg.Urls {
+		c.Visited.Put(url)
+		c.Claimed.Pop(url)
+		c.LocalQueue.Remove(url)
+	}
+	return nil
+}
+
+// register the claim on a url, which will be either visited or evicted to the global
+// queue.
+func (c *Crawler) onUrlClaim(msg Message) error {
+	for _, url := range msg.Urls {
+		if !c.Visited.Has(url) {
+			c.Claimed.Put(url)
+		} else {
+			c.Visited.Put(url) // update last visit time
+		}
+	}
+	return nil
+}
+
+// register an unclaimed url in the global queue.
+func (c *Crawler) onUrlReport(msg Message) error {
+	for _, url := range msg.Urls {
+		if !c.Visited.Has(url) {
+			c.GlobalPool.Put(url)
+		} else {
+			c.Visited.Put(url) // update last visit time
+		}
+	}
 	return nil
 }
 
