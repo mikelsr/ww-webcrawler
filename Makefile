@@ -37,7 +37,7 @@ wasm:
 		./crawler/crawler.go \
 		./crawler/msg.go \
 		./crawler/set.go \
-		./crawler/setqueue.go \
+		./crawler/uniquequeue.go \
 		./crawler/timedset.go \
 		./crawler/http.go \
 		./crawler/neo4j.go
