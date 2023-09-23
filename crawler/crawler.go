@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/wetware/pkg/cap/csp"
 	ww "github.com/wetware/pkg/guest/system"
 
-	api "github.com/mikelsr/ww-webcrawler/crawler/proto/pkg"
 	http "github.com/mikelsr/ww-webcrawler/services/http/pkg"
 )
 
@@ -220,6 +220,7 @@ func (c *Crawler) join(ctx context.Context) error {
 func (c *Crawler) idToKey(id uint64) string {
 	return fmt.Sprintf("%s-%x", c.Prefix, id)
 }
+
 // Crawl until the context is canceled.
 func (c *Crawler) CrawlForever(ctx context.Context) error {
 	// Start claim eviction goroutine.
@@ -315,14 +316,81 @@ func (c *Crawler) evictClaims(ctx context.Context) {
 		return true
 	})
 }
+
+// Sorts urls into potential claims and unclaimed, then publicly claims and reports them
+// respectively.
+func (c *Crawler) sortAndSend(ctx context.Context, urls ...link) error {
+	freeSlots := QUEUE_CAP - c.Urls.LocalQueue.Size()
+	claimed := make([]string, 0, freeSlots)
+	unclaimed := make([]string, 0, len(urls))
+	for i := range urls {
+		ref := urls[i].String()
+		if c.Urls.Visited.Has(ref) {
+			continue
+		}
+		// Leave 1 in 3 URLs unclaimed to better distribute load.
+		if len(claimed) < freeSlots && i%3 == 0 {
+			claimed = append(claimed, ref)
+		} else {
+			unclaimed = append(unclaimed, ref)
+		}
+	}
+	c.claimUrls(ctx, claimed...)
+	c.reportUrls(ctx, unclaimed...)
 	return nil
 }
 
-func (c *Crawler) testGetValue(ctx context.Context, k string) error {
-	if _, ok := c.Raft.Map.Load(k); ok {
-		fmt.Println("found")
+// A URL was visited, other nodes will add it to Visited.
+func (c *Crawler) reportVisits(ctx context.Context, urls ...string) error {
+	err := c.sendMsg(ctx, Visit, urls...)
+	if err != nil {
+		c.Logger.Debugf("[%x] failed to report visits to %v: %s", c.ID, urls, err)
+	}
+	return err
+}
+
+// Claims a URL so others don't crawl it too.
+func (c *Crawler) claimUrls(ctx context.Context, urls ...string) error {
+	claimed := make([]string, 0, len(urls))
+	unclaimed := make([]string, 0, len(urls))
+	for _, url := range urls {
+		if err := c.LocalQueue.Put(url); err == nil {
+			claimed = append(claimed, url)
+		} else {
+			unclaimed = append(unclaimed, url)
+		}
+	}
+	err := c.sendMsg(ctx, Claim, claimed...)
+	if err != nil {
+		c.Logger.Debugf("[%x] failed to claim %v: %s", c.ID, claimed, err)
+	}
+	// Report the ones it could not claim.
+	c.reportUrls(ctx, unclaimed...)
+	return err
+}
+
+// Reports unclaimed URLs.
+func (c *Crawler) reportUrls(ctx context.Context, urls ...string) error {
+	err := c.sendMsg(ctx, Report, urls...)
+	if err != nil {
+		c.Logger.Debugf("[%x] failed to report %v: %s", c.ID, urls, err)
+	}
+	return err
+}
+
+// Sends a message to other nodes.
+func (c *Crawler) sendMsg(ctx context.Context, t MessageType, urls ...string) error {
+	if len(urls) <= 0 {
 		return nil
 	}
-	fmt.Println("not found")
-	return nil
+
+	msg := Message{
+		MessageType: t,
+		Urls:        urls,
+	}
+	item, err := msg.AsItem(c.Raft.ID)
+	if err != nil {
+		return err
+	}
+	return c.Raft.PutItem(ctx, item)
 }
