@@ -24,8 +24,28 @@ type Crawler struct {
 	Raft
 	Ww
 
+	Urls
+	CrawCtrl // TODO: cancel current crawl if the URL in progress is received as report.
+	// Prefix, shared by all members of the crawling cluster.
 	Prefix string
 	Cancel context.CancelFunc
+}
+
+type CrawCtrl struct {
+	// "go.uber.org/atomic"
+	// atomic.String
+	// Cancel context.CancelFunc
+}
+
+type Urls struct {
+	// Contains the URLs to crawl next.
+	LocalQueue UniqueQueue[string]
+	// Global pool of unassigned URLs.
+	GlobalPool Set[string]
+	// Unparsed URLs claimed by other peers
+	Claimed TimedSet[string]
+	// URLs already crawled
+	Visited Set[string]
 }
 
 type Ww struct {
