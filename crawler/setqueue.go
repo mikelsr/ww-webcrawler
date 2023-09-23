@@ -11,7 +11,7 @@ type UniqueQueue[T comparable] struct {
 	lastR    int
 	lastW    int
 	items    []T
-	mut      *sync.RWMutex
+	mut      *sync.Mutex
 }
 
 func NewUniqueQueue[T comparable](capacity int) UniqueQueue[T] {
@@ -20,8 +20,14 @@ func NewUniqueQueue[T comparable](capacity int) UniqueQueue[T] {
 		lastR:    -1,
 		lastW:    -1,
 		items:    make([]T, capacity),
-		mut:      &sync.RWMutex{},
+		mut:      &sync.Mutex{},
 	}
+}
+
+func (u UniqueQueue[T]) Size() int {
+	u.mut.Lock()
+	defer u.mut.Unlock()
+	return u.size()
 }
 
 func (u UniqueQueue[T]) size() int {
@@ -30,6 +36,12 @@ func (u UniqueQueue[T]) size() int {
 	} else {
 		return u.capacity + u.lastW - u.lastR
 	}
+}
+
+func (u UniqueQueue[T]) Put(t T) error {
+	u.mut.Lock()
+	defer u.mut.Unlock()
+	return u.put(t)
 }
 
 func (u UniqueQueue[T]) put(t T) error {
@@ -46,6 +58,12 @@ func (u UniqueQueue[T]) put(t T) error {
 	u.lastW++
 	u.items[u.lastW] = t
 	return nil
+}
+
+func (u UniqueQueue[T]) Get() (T, error) {
+	u.mut.Lock()
+	defer u.mut.Unlock()
+	return u.get()
 }
 
 func (u UniqueQueue[T]) get() (T, error) {
