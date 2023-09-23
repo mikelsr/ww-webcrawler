@@ -27,12 +27,12 @@ func (li LoginInfo) Headers() map[string]string {
 	return defaultHeaders(li.Username, li.Password)
 }
 
-type Neo4jSession struct {
+type Neo4j struct {
 	Login LoginInfo
 	Http  http.Requester
 }
 
-func (s Neo4jSession) PageExists(ctx context.Context, page link) bool {
+func (s Neo4j) PageExists(ctx context.Context, page link) bool {
 	pageExists := neo4jNodeExistsQuery(page)
 	res, err := runQueries(ctx, s.Http, s.Login, pageExists)
 	if err != nil {
@@ -41,20 +41,32 @@ func (s Neo4jSession) PageExists(ctx context.Context, page link) bool {
 	return res.Error != "" || res.Status != statusOk || !strings.HasPrefix(string(res.Body), noMatchesPrefix)
 }
 
-func (s Neo4jSession) RegisterVisit(ctx context.Context, src, dst link) error {
+func (s Neo4j) RegisterVisit(ctx context.Context, src, dst link) error {
 	create := neo4jVisitQuery(dst)
 	_, err := runQueries(ctx, s.Http, s.Login, create)
 	return err
 }
 
-func (s Neo4jSession) RegisterRef(ctx context.Context, src, dst link) error {
+func (s Neo4j) RegisterRefs(ctx context.Context, src link, dsts ...link) error {
+	if src == nilLink {
+		return errors.New("nil src link")
+	}
+	stmts := make([]statement, 0, len(dsts)*2+1)
 	// merge src
 	createSrc := neo4jVisitQuery(src)
-	// merge dst
-	createDst := neo4jVisitQuery(dst)
-	// point to dst from src
-	reference := neo4jReferenceQuerie(src, dst)
-	_, err := runQueries(ctx, s.Http, s.Login, createSrc, createDst, reference)
+	stmts = append(stmts, createSrc)
+	for _, dst := range dsts {
+		if dst == nilLink {
+			continue
+		}
+		// merge dst
+		createDst := neo4jVisitQuery(dst)
+		stmts = append(stmts, createDst)
+		// point to dst from src
+		reference := neo4jReferenceQuerie(src, dst)
+		stmts = append(stmts, reference)
+	}
+	_, err := runQueries(ctx, s.Http, s.Login, stmts...)
 	return err
 }
 

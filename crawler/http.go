@@ -6,12 +6,14 @@ import (
 
 // Special characters found in path extracted from https://datatracker.ietf.org/doc/html/rfc3986#section-3.3
 // this abobinations are used to find links instead of using the wasm-limited native parser
-const quotedUrlPattern = `"(?P<Link>` +
+const urlPattern = `(?P<Link>` +
 	`(?P<Proto>http[s]:\/\/?)?` +
 	`(?P<Domain>([0-9A-Za-z]+\.)*[A-Za-z]+)?` +
 	`(?P<Path>\/[0-9A-Za-z\.\-_\~\!$&'\(\)\*\+,;=:@]+)?` +
-	`[^"]*)"`
-const hrefPattern = `<a\s+(?:[^>]*?\s+)?href=` + quotedUrlPattern
+	`[^"]*)`
+const hrefPattern = `<a\s+(?:[^>]*?\s+)?href="` + urlPattern + `"`
+
+var nilLink = link{}
 
 type link struct {
 	Proto  string
@@ -32,11 +34,25 @@ func linkFromMatch(match []string) link {
 	}
 }
 
+// create a link from a url in string form
+func linkFromString(url string) link {
+	r := regexp.MustCompile(urlPattern)
+	matches := r.FindAllStringSubmatch(url, -1)
+	if len(matches) < 1 {
+		return nilLink
+	}
+	return link{
+		Proto:  matches[0][2],
+		Domain: matches[0][3],
+		Path:   matches[0][5],
+	}
+}
+
 // extract every crawleable link from a given page,
 // excluding the link the page was retrieved from
 func extractLinks(fromUrl string, html string) (from link, to []link) {
-	r := regexp.MustCompile(quotedUrlPattern)
-	match := r.FindStringSubmatch("\"" + fromUrl + "\"")
+	r := regexp.MustCompile(urlPattern)
+	match := r.FindStringSubmatch(fromUrl)
 	from = linkFromMatch(match)
 
 	r = regexp.MustCompile(hrefPattern)

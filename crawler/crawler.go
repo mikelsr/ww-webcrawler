@@ -19,7 +19,10 @@ import (
 	http "github.com/mikelsr/ww-webcrawler/services/http/pkg"
 )
 
+type DBWrite func(ctx context.Context, src link, dsts ...link) error
+
 type Crawler struct {
+	DBWrite
 	Http
 	Raft
 	Ww
@@ -161,10 +164,7 @@ func (c *Crawler) spawnCrawlers(ctx context.Context, n uint64) error {
 			core.Session(c.Session),
 			ww.Cid(),
 			ww.Pid(),
-			append(ww.Args(), []string{
-				c.Prefix,
-				strconv.FormatUint(c.Node.ID, ID_BASE),
-			}...)...,
+			append(ww.Args(), strconv.FormatUint(c.Node.ID, ID_BASE))...,
 		)
 		defer release()
 		log.Infof("[%x] spawn crawler %x done\n", c.ID, i)
@@ -247,6 +247,11 @@ func (c *Crawler) CrawlForever(ctx context.Context) error {
 		if err != nil {
 			c.Logger.Errorf("[%x] error reporting %s: %s", c.ID, url, err)
 		}
+
+		if c.DBWrite != nil {
+			go c.writeRefsToDb(ctx, linkFromString(url), refs)
+		}
+
 		err = c.sortAndSend(ctx, refs...)
 		if err != nil {
 			c.Logger.Error("[%x] %s", c.ID, err)
@@ -393,4 +398,12 @@ func (c *Crawler) sendMsg(ctx context.Context, t MessageType, urls ...string) er
 		return err
 	}
 	return c.Raft.PutItem(ctx, item)
+}
+
+// write src->dst relations to the target DB.
+func (c *Crawler) writeRefsToDb(ctx context.Context, src link, dsts []link) {
+	c.Logger.Debugf("[%x] write refs to db, src: %s, dst: %v", c.ID, src, dsts)
+	if err := c.DBWrite(ctx, src, dsts...); err != nil {
+		c.Logger.Errorf("[%x] could not write refs to DB: %s", c.ID, err)
+	}
 }
