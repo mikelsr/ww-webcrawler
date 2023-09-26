@@ -16,7 +16,7 @@ all: clean services crawler_capnp wasm
 
 services:
 	@mkdir -p ${http_proto_pkg}
-	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/v3/std \
+	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std \
 		-ogo:${http_proto_pkg} \
 		--src-prefix=${http_proto} \
 		${http_proto}/http.capnp
@@ -24,7 +24,7 @@ services:
 
 crawler_capnp:
 	@mkdir -p ${crawler_proto_pkg}
-	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/v3/std \
+	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std \
 		-ogo:${crawler_proto_pkg} \
 		--src-prefix=${crawler_proto} \
 		${crawler_proto}/crawler.capnp
