@@ -27,6 +27,8 @@ type Crawler struct {
 	Raft
 	Ww
 
+	ReqPool
+
 	Urls
 	CrawCtrl // TODO: cancel current crawl if the URL in progress is received as report.
 	// Prefix, shared by all members of the crawling cluster.
@@ -38,6 +40,12 @@ type CrawCtrl struct {
 	// "go.uber.org/atomic"
 	// atomic.String
 	// Cancel context.CancelFunc
+}
+
+type ReqPool struct {
+	Requests  chan string
+	Responses chan http.Response
+	Size      int
 }
 
 type Urls struct {
@@ -223,6 +231,10 @@ func (c *Crawler) idToKey(id uint64) string {
 
 // Crawl until the context is canceled.
 func (c *Crawler) CrawlForever(ctx context.Context) error {
+	// Start page requesting goroutine.
+	go c.sendRequests(ctx)
+	// Start page processing goroutine.
+	go c.processResponses(ctx)
 	// Start claim eviction goroutine.
 	go c.evictClaimsForever(ctx)
 	for {
@@ -238,38 +250,47 @@ func (c *Crawler) CrawlForever(ctx context.Context) error {
 			time.Sleep(URL_ITER_PERIOD)
 			continue
 		}
-		refs, err := c.Crawl(ctx, url)
-		if err != nil {
-			c.Logger.Errorf("[%x] error crawling %s: %s", c.ID, url, err)
-			continue
-		}
-		err = c.reportVisits(ctx, url)
-		if err != nil {
-			c.Logger.Errorf("[%x] error reporting %s: %s", c.ID, url, err)
-		}
-
-		if c.DBWrite != nil {
-			go c.writeRefsToDb(ctx, linkFromString(url), refs)
-		}
-
-		err = c.sortAndSend(ctx, refs...)
-		if err != nil {
-			c.Logger.Error("[%x] %s", c.ID, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case c.Requests <- url: // pass url to the requesting routine.
 		}
 	}
 }
 
-// Crawls a URL and returns a list of the hrefs it found.
-func (c *Crawler) Crawl(ctx context.Context, url string) ([]link, error) {
-	c.Logger.Debugf("[%x] crawl %s", c.ID, url)
-	res, err := c.Http.Get(ctx, url)
-	if err != nil {
-		return nil, err
+// Send http requests to at most c.ReqPool.Size urls at any given time.
+// URLs are received through c.Requests.
+// Results are sent through c.Responses.
+func (c *Crawler) sendRequests(ctx context.Context) error {
+	turn := make(chan struct{}, c.ReqPool.Size)
+	for i := 0; i < c.ReqPool.Size; i++ {
+		turn <- struct{}{}
 	}
-
-	fromLink, toLinks := extractLinks(url, string(res.Body))
-	c.Logger.Debugf("[%x] found %d urls crawling %s: %v", c.ID, len(toLinks), fromLink, toLinks)
-	return toLinks, nil
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-turn:
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case url := <-c.Requests:
+			go func() {
+				defer func() {
+					select {
+					case turn <- struct{}{}:
+					case <-ctx.Done():
+					}
+				}()
+				c.Logger.Debugf("[%x] crawl %s", c.ID, url)
+				res, err := c.Http.Get(ctx, url)
+				if err != nil {
+					c.Logger.Errorf("[%x] error crawling %s: %s", c.ID, url, err)
+				}
+				c.Responses <- res
+			}()
+		}
+	}
+	return nil
 }
 
 // Get the next url to search:
@@ -294,6 +315,36 @@ func (c *Crawler) NextUrl(ctx context.Context) (string, error) {
 			}
 			return "", errors.New("no new urls found")
 		}
+	}
+}
+
+func (c *Crawler) processResponses(ctx context.Context) error {
+	for {
+		select {
+		case r := <-c.Responses:
+			c.processResponse(ctx, r)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (c *Crawler) processResponse(ctx context.Context, r http.Response) {
+	fromLink, toLinks := extractLinks(r.Origin, string(r.Body))
+	c.Logger.Debugf("[%x] found %d urls crawling %s: %v", c.ID, len(toLinks), fromLink, toLinks)
+
+	err := c.reportVisits(ctx, r.Origin)
+	if err != nil {
+		c.Logger.Errorf("[%x] error reporting %s: %s", c.ID, r.Origin, err)
+	}
+
+	if c.DBWrite != nil {
+		go c.writeRefsToDb(ctx, fromLink, toLinks)
+	}
+
+	err = c.sortAndSend(ctx, toLinks...)
+	if err != nil {
+		c.Logger.Error("[%x] %s", c.ID, err)
 	}
 }
 

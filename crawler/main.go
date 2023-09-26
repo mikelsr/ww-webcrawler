@@ -30,6 +30,7 @@ const (
 	ID_BASE          = 16 // ID encoding base.
 	USAGE            = "ww cluster run ./wasm/crawler.wasm <http capstore key> <nodes> <url> <?neo4j endpoint> <?neo4j user> <?neo4j password>"
 
+	MAX_POOL_SIZE      = 3               // Maximum simultaneous HTTP requests
 	QUEUE_CAP          = 20              // Maximum size of the local URL queue.
 	CLAIM_CHECK_PERIOD = 1 * time.Minute // Period in between claim eviction cheks.
 	CLAIM_TIMEOUT      = 5 * time.Minute // Claim timeout.
@@ -66,6 +67,11 @@ func main() {
 		Cancel: cancel,
 		Prefix: ww.Args()[PREFIX],
 
+		ReqPool: ReqPool{
+			Responses: make(chan http.Response),
+			Size:      MAX_POOL_SIZE,
+		},
+
 		Urls: Urls{
 			LocalQueue: NewUniqueQueue[string](QUEUE_CAP),
 			GlobalPool: NewSet[string](),
@@ -85,15 +91,14 @@ func main() {
 	}
 
 	if dbEnabled() {
-		neo4jSession := Neo4j{
+		crawler.DBWrite = Neo4j{
 			Http: requester,
 			Login: LoginInfo{
 				Endpoint: ww.Args()[DB_ENPOINT],
 				Username: ww.Args()[DB_USER],
 				Password: ww.Args()[DB_PASS],
 			},
-		}
-		crawler.DBWrite = neo4jSession.RegisterRefs
+		}.RegisterRefs
 	}
 
 	// Build a raft node.

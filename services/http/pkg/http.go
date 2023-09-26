@@ -14,6 +14,7 @@ type Response struct {
 	Body   []byte
 	Status uint32
 	Error  string
+	Origin string
 }
 
 func (r Response) String() string {
@@ -79,6 +80,7 @@ func Get(ctx context.Context, requester api.Requester, url string) (Response, er
 		Body:   body,
 		Status: status,
 		Error:  resErr,
+		Origin: url,
 	}, nil
 }
 
