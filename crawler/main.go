@@ -68,6 +68,7 @@ func main() {
 		Prefix: ww.Args()[PREFIX],
 
 		ReqPool: ReqPool{
+			Requests:  make(chan string),
 			Responses: make(chan http.Response),
 			Size:      MAX_POOL_SIZE,
 		},

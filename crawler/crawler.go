@@ -160,10 +160,10 @@ func (c *Crawler) startRaftNode(ctx context.Context) {
 	}
 }
 
-// Spawn n crawler processes with raft nodes of this cluster.
+// Spawn n-1 crawler processes with raft nodes of this cluster.
 func (c *Crawler) spawnCrawlers(ctx context.Context, n uint64) error {
 	log.Infof("[%x] spawn %d crawlers\n", c.ID, n)
-	for i := uint64(0); i < uint64(n); i++ {
+	for i := uint64(1); i < uint64(n); i++ {
 		log.Infof("[%x] spawn crawler %x\n", c.ID, i)
 		// p, release := c.Executor.ExecCached(
 		// Won't keep track of the other processes.
