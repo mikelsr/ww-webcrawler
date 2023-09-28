@@ -266,31 +266,32 @@ func (c *Crawler) sendRequests(ctx context.Context) error {
 	for i := 0; i < c.ReqPool.Size; i++ {
 		turn <- struct{}{}
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-turn:
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case url := <-c.Requests:
-			go func() {
-				defer func() {
-					select {
-					case turn <- struct{}{}:
-					case <-ctx.Done():
+		case <-turn:
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case url := <-c.Requests:
+				go func() {
+					defer func() {
+						select {
+						case turn <- struct{}{}:
+						case <-ctx.Done():
+						}
+					}()
+					c.Logger.Debugf("[%x] crawl %s", c.ID, url)
+					res, err := c.Http.Get(ctx, url)
+					if err != nil {
+						c.Logger.Errorf("[%x] error crawling %s: %s", c.ID, url, err)
 					}
+					c.Responses <- res
 				}()
-				c.Logger.Debugf("[%x] crawl %s", c.ID, url)
-				res, err := c.Http.Get(ctx, url)
-				if err != nil {
-					c.Logger.Errorf("[%x] error crawling %s: %s", c.ID, url, err)
-				}
-				c.Responses <- res
-			}()
+			}
 		}
 	}
-	return nil
 }
 
 // Get the next url to search:

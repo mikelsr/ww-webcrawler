@@ -6,12 +6,19 @@ import (
 
 // Special characters found in path extracted from https://datatracker.ietf.org/doc/html/rfc3986#section-3.3
 // this abobinations are used to find links instead of using the wasm-limited native parser
-const urlPattern = `(?P<Link>` +
-	`(?P<Proto>http[s]:\/\/?)?` +
-	`(?P<Domain>([0-9A-Za-z]+\.)*[A-Za-z]+)?` +
-	`(?P<Path>\/[0-9A-Za-z\.\-_\~\!$&'\(\)\*\+,;=:@]+)?` +
-	`[^"]*)`
-const hrefPattern = `<a\s+(?:[^>]*?\s+)?href="` + urlPattern + `"`
+const (
+	urlPattern = `(?P<Link>` +
+		`(?P<Proto>http[s]?:\/\/?)?` +
+		`(?P<Domain>([0-9A-Za-z]+\.)*[0-9A-Za-z]+(:[0-9]+))?` +
+		`(?P<Path>\/[\/0-9A-Za-z\.\-_\~\!$&'\(\)\*\+,;=:@]+)?` +
+		`[^"]*)`
+	hrefPattern = `<a\s+(?:[^>]*?\s+)?href="` + urlPattern + `"`
+)
+
+var (
+	urlExp  = regexp.MustCompile(urlPattern)
+	hrefExp = regexp.MustCompile(hrefPattern)
+)
 
 var nilLink = link{}
 
@@ -26,46 +33,36 @@ func (l link) String() string {
 }
 
 // create a link from a match retrieved with one of the patterns above
-func linkFromMatch(match []string) link {
-	return link{
-		Proto:  match[2],
-		Domain: match[3],
-		Path:   match[5],
-	}
-}
-
-// create a link from a url in string form
-func linkFromString(url string) link {
-	r := regexp.MustCompile(urlPattern)
-	matches := r.FindAllStringSubmatch(url, -1)
-	if len(matches) < 1 {
-		return nilLink
+func linkFromMatch(exp *regexp.Regexp, match []string) link {
+	names := make(map[string]string)
+	for i, name := range exp.SubexpNames() {
+		if i != 0 && name != "" {
+			names[name] = match[i]
+		}
 	}
 	return link{
-		Proto:  matches[0][2],
-		Domain: matches[0][3],
-		Path:   matches[0][5],
+		Proto:  names["Proto"],
+		Domain: names["Domain"],
+		Path:   names["Path"],
 	}
 }
 
 // extract every crawleable link from a given page,
 // excluding the link the page was retrieved from
 func extractLinks(fromUrl string, html string) (from link, to []link) {
-	r := regexp.MustCompile(urlPattern)
-	match := r.FindStringSubmatch(fromUrl)
-	from = linkFromMatch(match)
+	match := urlExp.FindStringSubmatch(fromUrl)
+	from = linkFromMatch(urlExp, match)
 
-	r = regexp.MustCompile(hrefPattern)
-	matches := r.FindAllStringSubmatch(html, -1)
+	matches := hrefExp.FindAllStringSubmatch(html, -1)
 
 	// avoid repetition
 	linkSet := make(map[link]bool)
 
 	for _, match = range matches {
-		link := linkFromMatch(match)
+		link := linkFromMatch(hrefExp, match)
 
 		// mailto, magnets or similar links
-		if link.Path == "" && link.Proto != "https://" && link.Proto != "http://" {
+		if link.Path == "" && link.Proto != "" && link.Proto != "https://" && link.Proto != "http://" {
 			continue
 		}
 

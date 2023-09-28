@@ -5,8 +5,8 @@ if [ $# -lt 2 ]; then
     exit 1
 fi
 
-key=$( head /dev/urandom | tr -dc A-Za-z0-9 | head -c32 )
-prefix=$( head /dev/urandom | tr -dc A-Za-z0-9 | head -c32 )
+key=$( head /dev/urandom | env LC_CTYPE=C tr -dc A-Za-z0-9 | head -c32 )
+prefix=$( head /dev/urandom | env LC_CTYPE=C tr -dc A-Za-z0-9 | head -c32 )
 
 # start the service prover in the background
 ./services/register_services $key &

@@ -30,11 +30,11 @@ const (
 	ID_BASE          = 16 // ID encoding base.
 	USAGE            = "ww cluster run ./wasm/crawler.wasm <http capstore key> <nodes> <url> <?neo4j endpoint> <?neo4j user> <?neo4j password>"
 
-	MAX_POOL_SIZE      = 3               // Maximum simultaneous HTTP requests
-	QUEUE_CAP          = 20              // Maximum size of the local URL queue.
+	MAX_POOL_SIZE      = 10              // Maximum simultaneous HTTP requests
+	QUEUE_CAP          = 40              // Maximum size of the local URL queue.
 	CLAIM_CHECK_PERIOD = 1 * time.Minute // Period in between claim eviction cheks.
 	CLAIM_TIMEOUT      = 5 * time.Minute // Claim timeout.
-	URL_ITER_PERIOD    = 1 * time.Second
+	URL_ITER_PERIOD    = 10 * time.Millisecond
 )
 
 var log = raft.DefaultLogger(true)
