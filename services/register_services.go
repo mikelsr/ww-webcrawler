@@ -13,8 +13,11 @@ import (
 	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	tcp "github.com/libp2p/go-libp2p/p2p/transport/tcp"
 
+	cs_api "github.com/wetware/pkg/api/capstore"
+	"github.com/wetware/pkg/api/core"
 	"github.com/wetware/pkg/auth"
 	"github.com/wetware/pkg/boot"
+	"github.com/wetware/pkg/cap/view"
 	"github.com/wetware/pkg/vat"
 
 	http "github.com/mikelsr/ww-webcrawler/services/http/pkg/server"
@@ -56,7 +59,11 @@ func main() {
 
 	// Register the HTTP requester on the Wetware node.
 	log("register http provider...")
-	err = sess.CapStore().Set(ctx, k, capnp.Client(r))
+	// err = sess.CapStore().Set(ctx, k, capnp.Client(r))
+	// if err != nil {
+	// 	exit(err.Error())
+	// }
+	err = registerServices(ctx, sess, k, capnp.Client(r))
 	if err != nil {
 		exit(err.Error())
 	}
@@ -68,6 +75,30 @@ func main() {
 		exit(ctx.Err().Error())
 	}
 	log("graceful exit")
+}
+
+// register services in every available capstore.
+func registerServices(ctx context.Context, sess auth.Session, key string, service capnp.Client) error {
+	e := sess.Exec()
+	it, release := sess.View().Iter(ctx, view.NewQuery(view.All()))
+	defer release()
+	for r := it.Next(); r != nil; r = it.Next() {
+		t, _ := r.Peer().MarshalBinary()
+		s, self, err := e.DialPeer(ctx, t)
+		if err != nil {
+			panic(err)
+		}
+		if self {
+			s = core.Session(sess)
+		}
+		s.CapStore().Set(ctx, func(cs cs_api.CapStore_set_Params) error {
+			if err := cs.SetId(key); err != nil {
+				return err
+			}
+			return cs.SetCap(service)
+		})
+	}
+	return nil
 }
 
 func key() string {

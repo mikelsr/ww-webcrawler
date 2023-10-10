@@ -64,8 +64,9 @@ func main() {
 
 	// Build the crawler.
 	crawler := Crawler{
-		Cancel: cancel,
-		Prefix: ww.Args()[PREFIX],
+		Cancel:  cancel,
+		Prefix:  ww.Args()[PREFIX],
+		Cluster: Cluster{},
 
 		ReqPool: ReqPool{
 			Requests:  make(chan string),
@@ -117,7 +118,9 @@ func main() {
 	}
 
 	// Register raft node in capstore.
-	crawler.CapStore.Set(ctx, crawler.idToKey(crawler.Node.ID), capnp.Client(crawler.Cap.AddRef()))
+	crawler.Cluster.Sessions = crawler.fetchClusterSessions(ctx)
+	crawler.storeCap(ctx, crawler.idToKey(crawler.Node.ID), capnp.Client(crawler.Cap.AddRef()))
+	// crawler.CapStore.Set(ctx, crawler.idToKey(crawler.Node.ID), capnp.Client(crawler.Cap.AddRef()))
 	// Start the Raft node for this crawler.
 	crawler.startRaftNode(ctx)
 

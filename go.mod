@@ -132,5 +132,5 @@ require (
 
 replace (
 	github.com/mikelsr/raft-capnp => /home/mikel/Code/github.com/mikelsr/raft-capnp
-	github.com/wetware/pkg => /home/mikel/Code/github.com/wetware/pkg
+	github.com/wetware/pkg => /home/mikel/Code/github.com/mikelsr/pkg
 )

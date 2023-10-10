@@ -8,12 +8,14 @@ import (
 	"strconv"
 	"time"
 
+	"capnproto.org/go/capnp/v3"
 	raft_api "github.com/mikelsr/raft-capnp/proto/api"
 	"github.com/mikelsr/raft-capnp/raft"
 	"github.com/wetware/pkg/api/core"
 	"github.com/wetware/pkg/auth"
 	"github.com/wetware/pkg/cap/capstore"
 	"github.com/wetware/pkg/cap/csp"
+	"github.com/wetware/pkg/cap/view"
 	ww "github.com/wetware/pkg/guest/system"
 
 	http "github.com/mikelsr/ww-webcrawler/services/http/pkg"
@@ -29,11 +31,16 @@ type Crawler struct {
 
 	ReqPool
 
+	Cluster
 	Urls
 	CrawCtrl // TODO: cancel current crawl if the URL in progress is received as report.
 	// Prefix, shared by all members of the crawling cluster.
 	Prefix string
 	Cancel context.CancelFunc
+}
+
+type Cluster struct {
+	Sessions []auth.Session
 }
 
 type CrawCtrl struct {
@@ -81,7 +88,7 @@ func (c *Crawler) retrieveRaftNode(ctx context.Context, id uint64) (raft_api.Raf
 	if err != nil {
 		return raft_api.Raft{}, nil
 	}
-	return raft_api.Raft(r.AddRef()).AddRef(), nil // TODO mikel
+	return raft_api.Raft(r).AddRef(), nil
 }
 
 // process messages from other crawlers.
@@ -142,6 +149,7 @@ func (c *Crawler) onUrlReport(msg Message) error {
 
 // Start a raft node.
 func (c *Crawler) startRaftNode(ctx context.Context) {
+	c.Cluster.Sessions = c.fetchClusterSessions(ctx)
 	// the coordinator will spawn the rest of the crawlers.
 	if isCoordinator() {
 		c.Init()
@@ -469,5 +477,31 @@ func (c *Crawler) writeRefsToDb(ctx context.Context, src link, dsts []link) {
 	c.Logger.Debugf("[%x] write refs to db, src: %s, dst: %v", c.ID, src, dsts)
 	if err := c.DBWrite(ctx, src, dsts...); err != nil {
 		c.Logger.Errorf("[%x] could not write refs to DB: %s", c.ID, err)
+	}
+}
+
+func (c *Crawler) fetchClusterSessions(ctx context.Context) []auth.Session {
+	it, release := c.Session.View().Iter(ctx, view.NewQuery(view.All()))
+	defer release()
+	sessions := make([]auth.Session, 0)
+	for r := it.Next(); r != nil; r = it.Next() {
+		t, _ := r.Peer().MarshalBinary()
+		s, self, err := c.Executor.DialPeer(ctx, t)
+		if err != nil {
+			panic(err)
+		}
+		if self {
+			continue
+		}
+		sessions = append(sessions, auth.Session(s))
+	}
+	return nil
+}
+
+// store a capability in every cupstore of the cluster
+func (c *Crawler) storeCap(ctx context.Context, key string, cap capnp.Client) {
+	c.CapStore.Set(ctx, key, cap.AddRef())
+	for _, sess := range c.Cluster.Sessions {
+		sess.CapStore().Set(ctx, key, cap)
 	}
 }
