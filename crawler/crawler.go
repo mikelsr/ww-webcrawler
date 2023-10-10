@@ -170,25 +170,30 @@ func (c *Crawler) startRaftNode(ctx context.Context) {
 
 // Spawn n-1 crawler processes with raft nodes of this cluster.
 func (c *Crawler) spawnCrawlers(ctx context.Context, n uint64) error {
+	sessions := c.Cluster.Sessions
+	sessions = append(sessions, c.Session)
 	log.Infof("[%x] spawn %d crawlers\n", c.ID, n)
 	for i := uint64(1); i < uint64(n); i++ {
+		sess := sessions[int(i)%len(sessions)]
+		executor := sess.Exec()
+
 		log.Infof("[%x] spawn crawler %x\n", c.ID, i)
 		// p, release := c.Executor.ExecCached(
 		// Won't keep track of the other processes.
 		var release capnp.ReleaseFunc
 		if hasDbArgs() {
-			_, release = c.Executor.ExecCached(
+			_, release = executor.ExecCached(
 				ctx,
-				core.Session(c.Session),
+				core.Session(sess),
 				ww.Cid(),
 				ww.Pid(),
 				append(ww.Args(), strconv.FormatUint(c.Node.ID, ID_BASE))...,
 			)
 		} else {
 			newArgs := []string{"", "", "", strconv.FormatUint(c.Node.ID, ID_BASE)}
-			_, release = c.Executor.ExecCached(
+			_, release = executor.ExecCached(
 				ctx,
-				core.Session(c.Session),
+				core.Session(sess),
 				ww.Cid(),
 				ww.Pid(),
 				append(ww.Args(), newArgs...)...,
