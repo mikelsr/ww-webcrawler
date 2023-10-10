@@ -34,7 +34,7 @@ const (
 	QUEUE_CAP          = 40              // Maximum size of the local URL queue.
 	CLAIM_CHECK_PERIOD = 1 * time.Minute // Period in between claim eviction cheks.
 	CLAIM_TIMEOUT      = 5 * time.Minute // Claim timeout.
-	URL_ITER_PERIOD    = 10 * time.Millisecond
+	URL_ITER_PERIOD    = 100 * time.Millisecond
 )
 
 var log = raft.DefaultLogger(true)
@@ -132,8 +132,12 @@ func isCoordinator() bool {
 	return len(ww.Args()) == COORD_ARGS || len(ww.Args()) == COORD_ARGS_NEO4J
 }
 
+func hasDbArgs() bool {
+	return len(ww.Args()) >= COORD_ARGS_NEO4J
+}
+
 func dbEnabled() bool {
-	return len(ww.Args()) >= COORD_ARGS_NEO4J &&
+	return hasDbArgs() &&
 		ww.Args()[DB_ENPOINT] != "" &&
 		ww.Args()[DB_USER] != "" &&
 		ww.Args()[DB_PASS] != ""

@@ -167,13 +167,25 @@ func (c *Crawler) spawnCrawlers(ctx context.Context, n uint64) error {
 		log.Infof("[%x] spawn crawler %x\n", c.ID, i)
 		// p, release := c.Executor.ExecCached(
 		// Won't keep track of the other processes.
-		_, release := c.Executor.ExecCached(
-			ctx,
-			core.Session(c.Session),
-			ww.Cid(),
-			ww.Pid(),
-			append(ww.Args(), strconv.FormatUint(c.Node.ID, ID_BASE))...,
-		)
+		var release capnp.ReleaseFunc
+		if hasDbArgs() {
+			_, release = c.Executor.ExecCached(
+				ctx,
+				core.Session(c.Session),
+				ww.Cid(),
+				ww.Pid(),
+				append(ww.Args(), strconv.FormatUint(c.Node.ID, ID_BASE))...,
+			)
+		} else {
+			newArgs := []string{"", "", "", strconv.FormatUint(c.Node.ID, ID_BASE)}
+			_, release = c.Executor.ExecCached(
+				ctx,
+				core.Session(c.Session),
+				ww.Cid(),
+				ww.Pid(),
+				append(ww.Args(), newArgs...)...,
+			)
+		}
 		defer release()
 		log.Infof("[%x] spawn crawler %x done\n", c.ID, i)
 	}
